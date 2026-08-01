@@ -244,6 +244,67 @@ class UserHistoryFeatureExtractor:
             self._message_vectors = None
             self._message_text_map = {}
 
+    def get_evidence_message_ids(self, user_id: str, message_text: str, top_k: int = 3) -> str:
+        """
+        Find similar messages from user's history using TF-IDF similarity.
+
+        Args:
+            user_id: Receiving user ID
+            message_text: Current message text
+            top_k: Number of similar messages to return
+
+        Returns:
+            Semicolon-separated message IDs or 'none'
+        """
+        # Ensure TF-IDF is ready
+        self._ensure_text_similarity_ready()
+
+        # Handle NaN or invalid message_text
+        if self._tfidf_vectorizer is None:
+            return 'none'
+
+        if pd.isna(message_text):
+            return 'none'
+
+        message_text_str = str(message_text)
+        if not message_text_str or len(message_text_str) < 10:
+            return 'none'
+
+        history = self.data_loader.message_history
+
+        # Filter user's history
+        user_history = history[history['user_id'] == user_id].copy()
+
+        if len(user_history) == 0:
+            return 'none'
+
+        try:
+            # Get indices of user's messages in the full history
+            user_indices = user_history.index.tolist()
+
+            # Transform current message
+            current_vector = self._tfidf_vectorizer.transform([message_text])
+
+            # Compute similarity only with user's messages
+            user_vectors = self._message_vectors[user_indices]
+            similarities = cosine_similarity(current_vector, user_vectors)[0]
+
+            # Get top-k matches with similarity > 0.3
+            top_indices = similarities.argsort()[-top_k:][::-1]
+
+            matched_ids = []
+            for idx in top_indices:
+                if similarities[idx] > 0.3:
+                    actual_idx = user_indices[idx]
+                    msg_id = history.iloc[actual_idx]['message_id']
+                    matched_ids.append(msg_id)
+
+            return ';'.join(matched_ids) if matched_ids else 'none'
+
+        except Exception as e:
+            # Fallback on error
+            return 'none'
+
     def _compute_sender_trust_features(
         self,
         user_id: str,
@@ -326,7 +387,7 @@ class UserHistoryFeatureExtractor:
 
         try:
             # Transform current message
-            current_vector = self._tfidf_vectorizer.transform([message_text])
+            current_vector = self._tfidf_vectorizer.transform([message_text_str])
 
             # Get historical message vectors
             history = self.data_loader.message_history

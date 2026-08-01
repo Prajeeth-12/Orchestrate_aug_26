@@ -36,7 +36,7 @@ sys.path.insert(0, str(project_root / 'code'))
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 import json
 from datetime import datetime
 
@@ -72,6 +72,98 @@ from utils.data_loader import DatasetLoader
 from features.text_features import TextFeatureExtractor
 from features.user_features import UserHistoryFeatureExtractor
 from rule_based_classifier import RuleBasedClassifier
+
+
+class ReasonGenerator:
+    """
+    Generate human-readable specific reasons for routing decisions.
+    """
+
+    def generate(self, action: str, message_type: str, features: Dict[str, Any],
+                 text: str, confidence: float) -> str:
+        """
+        Generate specific reason based on action and features.
+
+        Args:
+            action: Predicted action (notify/digest/mute)
+            message_type: Classified message type
+            features: Feature dictionary
+            text: Message text
+            confidence: Confidence score
+
+        Returns:
+            Human-readable reason string
+        """
+        # NOTIFY reasons
+        if action == 'notify':
+            if features.get('has_specific_time', False):
+                return "Time-sensitive message with specific deadline or constraint"
+
+            if features.get('has_at_mention', False) and features.get('has_question', False):
+                return "Direct mention with question requiring response"
+
+            if message_type == 'payment':
+                return "Payment notification requiring immediate attention"
+
+            if message_type == 'urgent':
+                return "High-priority urgent message requiring notification"
+
+            if message_type == 'event':
+                return "Event invitation or schedule notification"
+
+            if features.get('sender_trust_score', 0.5) > 0.7:
+                return "Important message from highly trusted sender"
+
+            return f"High-priority {message_type} message"
+
+        # MUTE reasons
+        if action == 'mute':
+            if features.get('scam_keyword_count', 0) >= 2:
+                return "Detected scam/phishing pattern with suspicious verification or OTP request"
+
+            forwarded = features.get('forwarded_count', 0)
+            if forwarded > 5:
+                return f"Message forwarded {forwarded} times - likely spam chain content"
+            elif forwarded > 0:
+                return f"Message forwarded {forwarded} times - likely low-value chain content"
+
+            if features.get('sender_trust_score', 0.5) < 0.2:
+                return "Low trust sender with no prior positive interactions"
+
+            if message_type == 'promotion':
+                return "Promotional content from business - filtered as low priority"
+
+            if message_type == 'spam':
+                return "Spam content detected - aggressive marketing or unwanted message"
+
+            if message_type == 'scam':
+                return "Potential scam or malicious content - safety filter applied"
+
+            return "Low-value content filtered as spam"
+
+        # DIGEST reasons
+        if action == 'digest':
+            if features.get('sender_trust_score', 0.5) > 0.7:
+                return "Trusted sender update - useful but non-urgent information"
+
+            if message_type == 'business_update':
+                return "Business update from opted-in service - for later review"
+
+            if message_type == 'event':
+                return "Event information or announcement - review when convenient"
+
+            if features.get('has_greeting', False):
+                return "Casual greeting message - no immediate action required"
+
+            if message_type == 'forward':
+                return "Forwarded information message - useful for later"
+
+            if features.get('has_negation_of_urgency', False):
+                return "Non-urgent update explicitly marked for later review"
+
+            return "General update or information for later review"
+
+        return f"Classified as {message_type} with {confidence:.2f} confidence"
 
 
 class ConfidenceCalibrator:
@@ -165,6 +257,7 @@ class MessageRoutingPipeline:
         self.rule_classifier = RuleBasedClassifier()
         self.text_extractor = TextFeatureExtractor()
         self.user_extractor = UserHistoryFeatureExtractor(data_loader)
+        self.reason_generator = ReasonGenerator()
 
         # Models (to be trained)
         self.xgb_model = None
@@ -448,13 +541,33 @@ class MessageRoutingPipeline:
             'digest': 'business_update',  # Fixed: was 'update'
             'mute': 'promotion'  # Fixed: was 'promotional'
         }
+        message_type = message_type_map.get(predicted_class, 'unknown')
+
+        # Extract features dict for reason generation
+        feature_dict = featured_df.iloc[0].to_dict()
+
+        # Generate specific reason
+        reason = self.reason_generator.generate(
+            action=predicted_class,
+            message_type=message_type,
+            features=feature_dict,
+            text=message_row.get('message_text', ''),
+            confidence=calibrated_confidence
+        )
+
+        # Extract evidence message IDs
+        evidence_ids = self.user_extractor.get_evidence_message_ids(
+            user_id=message_row['user_id'],
+            message_text=message_row.get('message_text', ''),
+            top_k=3
+        )
 
         return {
             'action': predicted_class,
-            'message_type': message_type_map.get(predicted_class, 'general'),
-            'reason': f'ML model prediction with {calibrated_confidence:.2f} confidence',
+            'message_type': message_type,
+            'reason': reason,
             'confidence': calibrated_confidence,
-            'evidence_message_ids': 'ml_features'
+            'evidence_message_ids': evidence_ids
         }
 
     def predict_batch(self, messages_df: pd.DataFrame, show_progress: bool = True) -> pd.DataFrame:
