@@ -1,0 +1,278 @@
+================================================================================
+MESSAGE NOTIFICATION ROUTER - DATA EXPLORATION REPORT
+================================================================================
+Generated: 2026-08-01 22:59:13.011942
+================================================================================
+
+================================================================================
+1. SAMPLE ACTIONS DISTRIBUTION
+================================================================================
+ACTION DISTRIBUTION (Training Data)
+
+Total samples: 30
+
+  notify  :   9 samples ( 30.0%)
+  digest  :  11 samples ( 36.7%)
+  mute    :  10 samples ( 33.3%)
+
+
+================================================================================
+2. MESSAGE TYPES IN SAMPLES
+================================================================================
+MESSAGE TYPE DISTRIBUTION (Training Data)
+
+  promotion: 6 (20.0%)
+  urgent: 4 (13.3%)
+  event: 4 (13.3%)
+  personal: 4 (13.3%)
+  scam: 4 (13.3%)
+  business_update: 3 (10.0%)
+  greeting: 2 (6.7%)
+  forward: 1 (3.3%)
+  spam: 1 (3.3%)
+  unknown: 1 (3.3%)
+
+
+================================================================================
+3. CONFIDENCE SCORE ANALYSIS
+================================================================================
+CONFIDENCE SCORE RANGES BY ACTION
+
+NOTIFY:
+  Min:     0.850
+  Max:     0.910
+  Mean:    0.874
+  Median:  0.870
+  Std Dev: 0.019
+
+DIGEST:
+  Min:     0.780
+  Max:     0.840
+  Mean:    0.816
+  Median:  0.820
+  Std Dev: 0.023
+
+MUTE:
+  Min:     0.810
+  Max:     0.870
+  Mean:    0.836
+  Median:  0.840
+  Std Dev: 0.025
+
+
+
+================================================================================
+4. EVIDENCE MESSAGE COVERAGE
+================================================================================
+Total samples with evidence: 28 / 30 (93.3%)
+Samples without evidence: 2 (6.7%)
+
+Average evidence messages per sample: 1.0
+Max evidence messages: 1
+
+
+================================================================================
+5. TEST MESSAGES OVERVIEW
+================================================================================
+Total messages to predict: 110
+
+CONVERSATION TYPE DISTRIBUTION:
+
+  group       :  63 ( 57.3%)
+  business    :  30 ( 27.3%)
+  personal    :  17 ( 15.5%)
+
+
+MEDIA TYPE DISTRIBUTION:
+
+  Text only:        87 ( 79.1%)
+  Image only:        0 (  0.0%)
+  Voice only:        8 (  7.3%)
+  Text + Image:     15 ( 13.6%)
+  Text + Voice:      0 (  0.0%)
+
+  Total with text:  102 ( 92.7%)
+  Total with image:  15 ( 13.6%)
+  Total with voice:   8 (  7.3%)
+
+
+================================================================================
+6. USERS, GROUPS, AND BUSINESSES
+================================================================================
+USER ACCOUNTS:
+  Total users: 54
+
+
+GROUPS:
+  Total groups: 23
+
+  Group types:
+    society: 3
+    family: 2
+    real_estate: 1
+    investment_tips: 1
+    safety: 1
+    finance_help: 1
+    sports: 1
+    caregiving: 1
+    dance_class: 1
+    book_club: 1
+    local_food: 1
+    tech_community: 1
+    college_faculty: 1
+    extended_family: 1
+    alumni: 1
+    friends: 1
+    marketplace: 1
+    coworker: 1
+    school_group: 1
+    college_students: 1
+
+
+BUSINESS ACCOUNTS:
+  Total businesses: 110
+
+  Top 10 business categories:
+    bank: 18
+    food_delivery: 9
+    telecom: 9
+    payments: 9
+    travel: 6
+    fintech: 5
+    healthcare: 4
+    ecommerce: 4
+    fashion: 3
+    quick_commerce: 3
+
+
+================================================================================
+7. MESSAGE HISTORY ANALYSIS
+================================================================================
+Total historical messages: 412
+
+Conversation type breakdown:
+  group: 208 (50.5%)
+  business: 155 (37.6%)
+  personal: 49 (11.9%)
+
+MEDIA TYPE DISTRIBUTION:
+
+  Text only:       389 ( 94.4%)
+  Image only:        0 (  0.0%)
+  Voice only:        4 (  1.0%)
+  Text + Image:     19 (  4.6%)
+  Text + Voice:      0 (  0.0%)
+
+  Total with text:  408 ( 99.0%)
+  Total with image:  19 (  4.6%)
+  Total with voice:   4 (  1.0%)
+
+
+================================================================================
+8. MESSAGE EVENTS (User Reactions)
+================================================================================
+Total message events: 412
+
+
+Unique messages with recorded events: 412
+
+Events per message:
+  Mean:   1.00
+  Median: 1
+  Max:    1
+
+
+================================================================================
+9. RELATIONSHIPS (Groups & Business)
+================================================================================
+GROUP MEMBERSHIPS:
+  Total membership records: 401
+  Unique users in groups: 54
+  Unique groups: 23
+
+  Members per group:
+    Mean:   17.4
+    Median: 16
+    Min:    13
+    Max:    30
+
+
+USER-BUSINESS INTERACTIONS:
+  Total interaction records: 106
+  Unique users: 40
+  Unique businesses: 50
+
+
+================================================================================
+10. MEDIA FILES
+================================================================================
+IMAGES:
+  Total images: 20
+
+
+VOICE NOTES:
+  Total voice notes: 13
+
+
+================================================================================
+12. DAILY NOTIFICATION SUMMARY
+================================================================================
+Total daily summary records: 756
+
+Unique users: 54
+
+Date range:
+  From: 2026-07-04 00:00:00
+  To:   2026-07-17 00:00:00
+  Days: 14
+
+Average values:
+  notifications_sent: 6.85
+  notifications_dismissed: 2.25
+
+
+================================================================================
+11. DATA QUALITY
+================================================================================
+DATA QUALITY CHECKS
+
+messages.csv:
+  group_id: 47 missing (42.7%)
+  business_id: 80 missing (72.7%)
+  sender_user_id: 30 missing (27.3%)
+  message_text: 8 missing (7.3%)
+  media_type: 87 missing (79.1%)
+  media_id: 87 missing (79.1%)
+
+sample_messages.csv:
+  group_id: 13 missing (43.3%)
+  business_id: 22 missing (73.3%)
+  sender_user_id: 8 missing (26.7%)
+  message_text: 3 missing (10.0%)
+  media_type: 22 missing (73.3%)
+  media_id: 22 missing (73.3%)
+
+users.csv: No missing values
+
+groups.csv: No missing values
+
+businesses.csv:
+  official_domain: 5 missing (4.5%)
+  domain_used_by_sender: 1 missing (0.9%)
+
+message_history.csv:
+  group_id: 204 missing (49.5%)
+  business_id: 257 missing (62.4%)
+  sender_user_id: 155 missing (37.6%)
+  message_text: 4 missing (1.0%)
+  media_type: 389 missing (94.4%)
+  media_id: 389 missing (94.4%)
+
+message_events.csv:
+  reaction_time_minutes: 134 missing (32.5%)
+
+
+
+================================================================================
+END OF REPORT
+================================================================================

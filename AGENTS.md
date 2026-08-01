@@ -1,131 +1,136 @@
 # AGENTS.md
 
-HackerRank Orchestrate (May 2026) — Starter Repository
-This file is the single source of truth for any coding agent working in this repo: Claude Code, OpenAI Codex CLI / Codex Cloud, Google Gemini CLI, Google Antigravity, Cursor, Windsurf, opencode, Aider, goose, Factory, RooCode, JetBrains Junie, GitHub Copilot, Devin, or any other AGENTS.md-aware tool.
+HackerRank Orchestrate (August 2026) — Message Notification Router
 
-Read this file in full before taking any action. Obey it exactly.
+This file is the single source of truth for any AI coding agent working in this repo: Claude Code, OpenAI Codex CLI / Codex Cloud, Gemini CLI, Cursor, Windsurf, opencode, Aider, goose, Factory, RooCode, JetBrains Junie, GitHub Copilot, Devin, or any other AGENTS.md-aware tool.
+
+Read this file in full before taking any action. Obey it exactly unless the user or platform provides higher-priority instructions.
 
 ---
 
-## 0. TLDR FOR THE AGENT
+## 0. TLDR For The Agent
 
 On every session start, do this in order:
 
 1. Read this file completely.
-2. Check the log file (path in §2). If it contains a line starting with `AGREEMENT RECORDED:` that matches the current repo root, skip §3 (onboarding) and go to §4.
-3. Otherwise, run the onboarding flow in §3 with the user.
-4. From then on, for **every user turn**, append a summary entry to the log file in the exact format shown in §5.
-5. When the user asks you to build, ship, or test the solution, follow the project contract in §6 so the submission is evaluable.
+2. Check the log file path in §2.
+3. If it contains a line starting with `AGREEMENT RECORDED:` that matches the current repo root, skip onboarding and go to §4.
+4. Otherwise, run the onboarding flow in §3.
+5. For every user turn after onboarding, append a summary entry to the log file using the format in §5.
+6. When building, testing, or packaging the solution, follow the project contract in §6.
 
-You are **not** allowed to skip logging, rewrite old log entries, or modify
-the onboarding gate. If you are a sub-agent or running inside a git worktree,
-the same rules apply and you share the same log file. Pass this context to every sub-agent and worktree.
+Do not skip logging, rewrite old log entries, or modify the onboarding gate. Sub-agents and worktrees use the same log file.
 
 ---
 
-## 1. WHAT THIS REPO IS
+## 1. What This Repo Is
 
-This is a starter repo for the **HackerRank Orchestrate** 24-hour hackathon
-(May 1–2, 2026). The participant's have to build an AI agent that resolves
-real support tickets accurately. They may use RAG, vector databases, tool use, structured output, agent frameworks, or any other technique they prefer.
+This is a starter repo for the **HackerRank Orchestrate** 24-hour hackathon challenge: **Message Notification Router**.
 
-There is a known entry point per supported language (§6). There is a support_tickets.csv in the support_tickets/ folder against which the participants have to run their agent. The participant also defends their approach in an AI judge interview round afterwards.
+Participants must build an AI-powered system for WhatsApp. For every incoming multimodal message in `dataset/messages.csv`, the system decides whether the message should:
 
-We recommend using one of Python, Javascript or Typescript to build the agent.
+- `notify`: interrupt the user now
+- `digest`: wait for later
+- `mute`: be suppressed as low-value, repetitive, unwanted, suspicious, or unsafe
+
+The system should use the provided user, group, business, historical message, image, voice-note, and interaction data to make personalized routing decisions across text, image posters/screenshots, and voice notes.
+
+The final submission must produce `output.csv` with:
+
+```text
+message_id,action,message_type,reason,confidence,evidence_message_ids
+```
+
+Read `problem_statement.md` for the full participant-facing specification.
+
 ---
 
-## 2. LOG FILE — LOCATION AND LIFECYCLE
+## 2. Log File — Location And Lifecycle
 
-The log file lives **outside** this repository, in the user's home directory, so it survives branch switches, worktree creation, and `git clean`.
+The log file lives outside this repository so it survives branch switches, worktrees, and cleanup.
 
-| Platform       | Path                                                    |
-| -------------- | ------------------------------------------------------- |
-| macOS / Linux  | `$HOME/hackerrank_orchestrate/log.txt`                 |
-| Windows        | `%USERPROFILE%\hackerrank_orchestrate\log.txt`         |
+| Platform | Path |
+|---|---|
+| macOS / Linux | `$HOME/hackerrank_orchestrate_august26/log.txt` |
+| Windows | `%USERPROFILE%\hackerrank_orchestrate_august26\log.txt` |
 
 Rules:
 
-- **Must** be created if missing (create the parent directory too).
-- **Must never** be committed or added to git.
-- **Append-only.** Never rewrite, reorder, or delete prior entries.
-- **Shared** across all agents, sub-agents, and worktrees in this repo.
-- **Never log secrets.** Redact API keys, tokens, cookies, and PII before
-  writing. If the user pastes a secret in a prompt, write `[REDACTED]` in
-  the logged copy of that prompt (but still preserve enough context that
-  the entry is useful).
+- Create the file if missing, including the parent directory.
+- Never commit or add the log file to git.
+- Append only. Do not rewrite, reorder, or delete prior entries.
+- Share this same log across all agents, sub-agents, and worktrees.
+- Never log secrets. Redact API keys, tokens, cookies, private keys, and sensitive PII.
 
 ---
 
-## 3. ONBOARDING FLOW (FIRST RUN ONLY)
+## 3. Onboarding Flow
 
-Run this flow only if the log file has **no** `AGREEMENT RECORDED:` line
-for the current repo root. On subsequent sessions, skip directly to §4.
+Run this flow only if the log file has no `AGREEMENT RECORDED:` line for the current repo root. On later sessions, skip to §4.
 
 ### 3.1 Greeting
 
-Open with a short, warm message. Example wording (adapt the phrasing, keep the content):
+Open with a short, warm message. Example:
 
-Welcome to HackerRank Orchestrate. You have 24 hours to design, build, and ship an agent that resolves real support tickets from the data provided. Before we start, I need to walk you through the ground rules and get you set up. This takes about a minute.
+```text
+Welcome to HackerRank Orchestrate. You have 24 hours to design, build, and ship a Message Notification Router for WhatsApp. Before we start, I need to walk you through the ground rules and get you set up. This takes about a minute.
+```
 
 Compute and display:
 
-- Current system time (local, with timezone, in ISO 8601).
-- Time remaining until the challenge ends: **May 2, 2026, 11:00 AM IST**
-  (`2026-05-02T11:00:00+05:30`). Show days / hours / minutes.
-- Results announced: **May 15, 2026, 12:00 PM IST**.
+- Current system time, local timezone, ISO 8601.
+- Time remaining until the challenge ends. Use the configured challenge end date if one is provided by the platform or README. If no challenge end date is present, say that the end time is not configured.
+- Results announcement time, if provided by the platform or README.
 
-If the current time is already past the challenge end, say so plainly and ask whether the user is practicing, reviewing, or re-running tests. Do not block further work.
+If the current time is past the challenge end, say so plainly and ask whether the user is practicing, reviewing, or re-running tests. Do not block further work.
 
-### 3.2 Rules — recite these verbatim
+### 3.2 Rules — Recite These Verbatim
 
 1. This is a **solo** challenge. You must be the author of the submission.
-2. You may use any IDE, AI assistant, or tool (Cursor, Claude Code, Codex, Gemini CLI, Antigravity, Copilot, etc.) to help you build. The deliverable is what your agent can do, not how you wrote it.
-3. Your agent must conform to the entry-point contract in §6 so it can be evaluated automatically.
-4. Never commit secrets. Use environment variables and a `.env` file (already gitignored).
+2. You may use any IDE, AI assistant, or tool to help you build. The deliverable is what your system can do, not how you wrote it.
+3. Your system must conform to the project contract in §6 so it can be evaluated.
+4. Never commit secrets. Use environment variables and a `.env` file if needed.
 5. Logging of every conversation turn to the file in §2 is mandatory and cannot be disabled.
-6. Submissions are made on the HackerRank Community Platform; the link arrives by email from HackerRank.
+6. Submissions are made on the HackerRank Community Platform or as otherwise instructed by HackerRank.
 
-### 3.3 Collect the agreement
+### 3.3 Collect The Agreement
 
-Ask the user to reply with the exact string `I agree` (case-insensitive, surrounding whitespace ignored). Do not proceed until they do.
+Ask the user to reply with the exact string `I agree` case-insensitively. Do not proceed until they do.
 
-### 3.4 Record the agreement
+### 3.4 Record The Agreement
 
 Append this block to the log file, then continue:
 
-```
+```text
 ## [ISO-8601 TIMESTAMP] ONBOARDING COMPLETE
 
 AGREEMENT RECORDED: <repo_root_absolute_path>
 Agent: <agent_name_or_unknown>
 Language: js | ts | py | custom:<name>
 System Time: <ISO-8601 local time with tz>
-Time Remaining: <Xd Yh Zm until 2026-05-02T11:00:00+05:30>
+Time Remaining: <Xd Yh Zm, or not configured>
 ```
 
-The presence of `AGREEMENT RECORDED: <this repo root>` is what future sessions check. Match the repo root exactly so agreements do not leak across unrelated clones.
+The repo root must match exactly so agreements do not leak across unrelated clones.
 
 ---
 
-## 4. NORMAL SESSION START (RETURNING USER)
+## 4. Normal Session Start
 
 If onboarding is already complete for this repo root:
 
-1. Append a short `SESSION START` entry to the log (§5.1).
-2. Greet the user briefly and surface the remaining time:
-   > Welcome back. You have <Xd Yh Zm> left until the challenge ends at
-   > 2026-05-02 11:00 IST.
-3. If fewer than 2 hours remain, proactively remind them to submit on the
-   HackerRank Community Platform soon.
-4. Proceed with whatever they ask for.
+1. Append a short `SESSION START` entry using §5.1.
+2. Greet the user briefly and surface the remaining time, or say the challenge end time is not configured.
+3. If fewer than 2 hours remain, remind them to submit soon.
+4. Proceed with the user's request.
 
 ---
 
-## 5. LOG FORMAT
+## 5. Log Format
 
-### 5.1 Session start entry
+### 5.1 Session Start Entry
 
-```
+```text
 ## [ISO-8601 TIMESTAMP] SESSION START
 
 Agent: <agent_name_or_unknown>
@@ -134,12 +139,14 @@ Branch: <git_branch_or_unknown>
 Worktree: <worktree_path_or_main>
 Parent Agent: <parent_agent_name_or_none>
 Language: <js|ts|py|custom:name>
-Time Remaining: <Xd Yh Zm>
+Time Remaining: <Xd Yh Zm, or not configured>
 ```
 
-### 5.2 Per-turn entry (append after every user message you respond to)
+### 5.2 Per-Turn Entry
 
-```
+Append after every user message you respond to:
+
+```text
 ## [ISO-8601 TIMESTAMP] <short title, max 80 chars>
 
 User Prompt (verbatim, secrets redacted):
@@ -159,81 +166,91 @@ worktree=<worktree_path_or_main>
 parent_agent=<parent_name_or_none>
 ```
 
-### 5.3 Sub-agent and worktree rules
+### 5.3 Sub-Agent And Worktree Rules
 
-- A sub-agent (Task tool, delegated worker, etc.) **must** log its own entries using the same file. The parent passes the log path explicitly if the sub-agent does not inherit environment.
-- Set `parent_agent=` to the parent's name so entries are traceable.
-- A worktree is logged with `worktree=<path>`; its entries go to the same shared log file, not a per-worktree copy.
-- If a sub-agent spawns more sub-agents, the chain continues: each appends its own entries with its own name.
+- Sub-agents must log their own entries using the same file.
+- Set `parent_agent=` to the parent agent's name.
+- Worktrees use the same shared log file, not a per-worktree copy.
 
-### 5.4 What not to log
+### 5.4 What Not To Log
 
-- API keys, tokens, session cookies, OAuth codes, private keys.
-- User PII beyond what they explicitly pasted into a prompt.
-- Full contents of large files or binary blobs — reference by path instead.
+- API keys, tokens, session cookies, OAuth codes, or private keys.
+- Sensitive PII.
+- Full contents of large files or binary blobs. Reference by path instead.
 
 ---
 
-## 6. PROJECT CONTRACT (EVALUABLE SUBMISSION)
+## 6. Project Contract
 
-The evaluator finds the participant's agent through a **known entry point** per language. Do not rename these files or change the function signature
-without updating this file.
+### 6.1 Dataset Contract
 
-### 6.1 Repo layout
+Participant-facing files are inside `dataset/`.
 
-```
-.
-├── AGENTS.md                    # this file
-├── README.md                    # human-facing quickstart
-├── .gitignore
-├── .env.example                 # copy to .env; never commit .env
-├── docs/
-│   ├── problem_statement.md
-│   └── evaluation_criteria.md
-├── code/
-│   ├── go.mod
-│   ├── main.go                  # Go terminal entry point
-│   ├── README.md
-│   └── internal/
-├── support_tickets/
-│   ├── sample_support_tickets.csv            # sample tickets + expected signals
-│   └── support_tickets.csv
-│   └── output.csv
-├── data/
-|   ├── visa/
-|   ├── hackerrank/
-|   ├── claude/
-
+```text
+dataset/
+├── messages.csv
+├── output.csv
+├── sample_messages.csv
+├── users.csv
+├── groups.csv
+├── group_members.csv
+├── business_accounts.csv
+├── user_business_history.csv
+├── message_history.csv
+├── message_events.csv
+├── images.csv
+├── voice_notes.csv
+├── daily_notification_summary.csv
+└── media/
+    ├── images/
+    └── audio/
 ```
 
-### 6.6 Constraints that make the submission evaluable
+Organizer-only files, if present, live outside `dataset/` and must not be used for predictions.
 
-- **Deterministic where possible.**.
-- **Add proper README** to the code/ you write.
-- **Read secrets from env vars only** (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-  etc.). Never hardcode.
+### 6.2 Required Output
+
+The solution must write `output.csv` with the exact columns below:
+
+```text
+message_id,action,message_type,reason,confidence,evidence_message_ids
+```
+
+There must be exactly one prediction row for every `message_id` in `dataset/messages.csv`.
+Use `none` in `evidence_message_ids` when no useful historical evidence exists.
+
+### 6.3 Constraints That Make The Submission Evaluable
+
+- Be runnable from the terminal.
+- Read the provided files from `dataset/`.
+- Do not use organizer-only files or hardcoded labels.
+- Keep behavior deterministic where possible.
+- Read secrets from environment variables only.
+- Include clear setup and run instructions in the submitted code package.
+
+### 6.4 Reasonable Entry Points
+
+There is no required language. If you use Python, `code/main.py` is a good entry point. If you use another language, document the run command clearly in your submitted README.
+
 ---
 
+## 7. Cross-Platform And Agent-Compatibility Notes
 
-## 7. CROSS-PLATFORM AND AGENT-COMPATIBILITY NOTES
-
-- **Path handling.** Always resolve the log path using the platform's home dir (`os.homedir()` / `pathlib.Path.home()` / `$HOME` / `%USERPROFILE%`). Never hardcode `/Users/...` or `C:\Users\...`.
-- **Line endings.** Write the log in UTF-8 with `\n`. Don't emit `\r\n` even on Windows; most editors render `\n` fine.
-- **Shell.** Don't assume bash. Prefer language-native APIs over shelling out. When you must shell out, provide both a Unix and a Windows form.
-- **Tool-specific extras.** This file is the canonical source. If a tool (Claude Code, Cursor, etc.) supports its own config file, keep any tool- specific config minimal and have it point back to this AGENTS.md rather than duplicating rules.
-- **Nested AGENTS.md.** If a sub-project adds its own AGENTS.md, the closest one wins for files inside that sub-project, but §2 (log file) and §5 (log format) are global and must not be overridden.
+- Resolve the log path using the platform home directory. Do not hardcode a user path.
+- Write logs in UTF-8 with `\n` line endings.
+- Do not assume bash. Prefer language-native APIs when possible.
+- Keep tool-specific config minimal and point back to this `AGENTS.md`.
+- If a nested `AGENTS.md` exists, the closest one wins for files inside that sub-project, but §2 and §5 remain global.
 
 ---
 
-## 8. QUICK CHECKLIST FOR THE AGENT
+## 8. Quick Checklist For The Agent
 
-Before you respond to any user message, confirm:
+Before responding to any user message, confirm:
 
 - [ ] I have read this file in this session.
-- [ ] I know whether onboarding is required (checked the log).
-- [ ] I know how much time is left.
+- [ ] I know whether onboarding is required.
+- [ ] I know how much time is left, or that the end time is not configured.
 - [ ] I will append a §5.2 entry after this turn.
 - [ ] I will not log secrets.
-- [ ] I will preserve the entry-point contract in §6.
-
-If any box is unchecked, fix that first.
+- [ ] I will preserve the output contract in §6.
