@@ -1,4 +1,4 @@
-"""
+﻿"""
 GPU-Optimized ML Training Pipeline for Message Notification Router
 
 Hardware: NVIDIA RTX 4050, 6GB VRAM, CUDA 13.2
@@ -39,6 +39,7 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
 import json
 from datetime import datetime
+import re
 
 # ML libraries
 import xgboost as xgb
@@ -165,6 +166,96 @@ class ReasonGenerator:
 
         return f"Classified as {message_type} with {confidence:.2f} confidence"
 
+class MessageTypeInferer:
+    """Deterministic message_type inference aligned with the competition taxonomy."""
+
+    def infer(self, row: pd.Series, action: str, features: Optional[Dict[str, Any]] = None) -> str:
+        text = row.get('message_text', '')
+        if pd.isna(text):
+            text = ''
+        text_lower = str(text).lower()
+        conversation_type = str(row.get('conversation_type', '')).lower()
+        media_type = row.get('media_type', '')
+        forwarded_count = row.get('forwarded_count', 0)
+
+        if self._is_scam(text_lower):
+            return 'scam'
+        if self._is_payment(text_lower):
+            return 'payment'
+        if self._is_greeting(text_lower):
+            return 'greeting'
+        if self._is_promotion(text_lower, conversation_type):
+            return 'promotion'
+        if self._is_event(text_lower, media_type):
+            return 'event'
+        if self._is_urgent(text_lower, action, features):
+            return 'urgent'
+        if forwarded_count and forwarded_count > 0:
+            return 'forward'
+        if self._is_business_update(text_lower, conversation_type):
+            return 'business_update'
+        if conversation_type == 'personal':
+            if action == 'mute' and self._is_spam(text_lower):
+                return 'spam'
+            if self._is_unknown_personal(text_lower):
+                return 'unknown'
+            return 'personal'
+        if action == 'mute' and self._is_spam(text_lower):
+            return 'spam'
+        if action == 'digest' and conversation_type == 'group':
+            return 'personal'
+        return 'personal' if action == 'notify' else 'business_update'
+
+    def _is_scam(self, text: str) -> bool:
+        scam_terms = ['otp', 'password', 'verification code', 'login code', 'verify now',
+                      'account-login', 'wallet verification', 'blocked', 'routing rules']
+        hits = sum(1 for term in scam_terms if term in text)
+        return hits >= 2 or 'ignore all previous' in text or 'reply with the otp' in text
+
+    def _is_payment(self, text: str) -> bool:
+        terms = ['payment', 'refund', 'amount due', 'card statement', 'wallet',
+                 'pay ', 'paid', 'invoice', 'bill']
+        return any(term in text for term in terms) and not self._is_scam(text)
+
+    def _is_greeting(self, text: str) -> bool:
+        return any(term in text for term in ['good morning', 'good evening', 'good vibes',
+                                             'stay positive', 'blessings', 'keep smiling'])
+
+    def _is_promotion(self, text: str, conversation_type: str) -> bool:
+        promo_terms = ['off', 'offer', 'discount', 'sale', 'limited', 'unsubscribe',
+                       'selling', 'price', 'rs ', 'itinerary', 'travel deal', 'plot',
+                       'token', 'shop', 'shopping', 'viewed', 'benefit', 'kurta']
+        if any(term in text for term in promo_terms):
+            return True
+        return conversation_type == 'business' and any(term in text for term in ['tap below', 'welcome'])
+
+    def _is_event(self, text: str, media_type: Any) -> bool:
+        event_terms = ['bus', 'school', 'circular', 'consent', 'field trip', 'cultural night',
+                       'form is open', 'registrations', 'saturday', 'internship approval',
+                       'fire alarm test', 'sync is still on', 'meeting', 'review got pulled',
+                       'appointment', 'scheduled time', 'faculty']
+        return any(term in text for term in event_terms)
+
+    def _is_urgent(self, text: str, action: str, features: Optional[Dict[str, Any]]) -> bool:
+        if action != 'notify':
+            return False
+        urgent_terms = ['urgent', 'asap', 'emergency', 'escalation', 'in 20 minutes',
+                        'next 10 minutes', 'before eod', 'deadline', 'cannot wait']
+        has_feature_time = bool(features and features.get('has_specific_time', False))
+        return has_feature_time or any(term in text for term in urgent_terms)
+
+    def _is_business_update(self, text: str, conversation_type: str) -> bool:
+        if conversation_type != 'business':
+            return False
+        update_terms = ['order', 'delivery', 'pickup', 'statement', 'account',
+                        'booking', 'ticket', 'advisory', 'update', 'review']
+        return any(term in text for term in update_terms)
+
+    def _is_spam(self, text: str) -> bool:
+        return any(term in text for term in ['click here', 'act now', 'forward to ten', 'chain'])
+
+    def _is_unknown_personal(self, text: str) -> bool:
+        return any(term in text for term in ['found your number', 'got this number', 'volunteer sheet'])
 
 class ConfidenceCalibrator:
     """
@@ -258,6 +349,7 @@ class MessageRoutingPipeline:
         self.text_extractor = TextFeatureExtractor()
         self.user_extractor = UserHistoryFeatureExtractor(data_loader)
         self.reason_generator = ReasonGenerator()
+        self.type_inferer = MessageTypeInferer()
 
         # Models (to be trained)
         self.xgb_model = None
@@ -513,40 +605,50 @@ class MessageRoutingPipeline:
         Returns:
             Prediction dictionary with action, confidence, reason
         """
+        # Extract features once; rules, type inference, reasons, and evidence all use them.
+        message_df = pd.DataFrame([message_row])
+        featured_df = self.extract_features(message_df, show_progress=False)
+        feature_dict = featured_df.iloc[0].to_dict()
+
         # Layer 1: Rule-based classifier
         rule_result = self.rule_classifier.classify_message(message_row)
         if rule_result is not None:
-            return rule_result
+            action = rule_result['action']
+            message_type = self.type_inferer.infer(message_row, action, feature_dict)
+            confidence = rule_result['confidence']
+            reason = self.reason_generator.generate(
+                action=action,
+                message_type=message_type,
+                features=feature_dict,
+                text=message_row.get('message_text', ''),
+                confidence=confidence
+            )
+            evidence_ids = self.user_extractor.get_evidence_message_ids(
+                user_id=message_row['user_id'],
+                message_text=message_row.get('message_text', ''),
+                top_k=3
+            )
+            return {
+                'action': action,
+                'message_type': message_type,
+                'reason': reason,
+                'confidence': confidence,
+                'evidence_message_ids': evidence_ids
+            }
 
-        # Layer 2 & 3: Feature extraction + ML prediction
-        message_df = pd.DataFrame([message_row])
-        featured_df = self.extract_features(message_df, show_progress=False)
-
+        # Layer 2 & 3: ML prediction
         X = featured_df[self.feature_names].fillna(0).values
         dmatrix = xgb.DMatrix(X, feature_names=self.feature_names)
 
-        # Predict
         y_proba = self.xgb_model.predict(dmatrix)[0]
         predicted_idx = np.argmax(y_proba)
         predicted_class = self.classes[predicted_idx]
         raw_confidence = float(y_proba[predicted_idx])
-
-        # Layer 4: Calibrate confidence
         calibrated_confidence = self.calibrator.transform(raw_confidence, predicted_class)
 
-        # Determine message type (schema-compliant)
-        # Allowed: personal, urgent, event, payment, business_update, promotion, greeting, forward, spam, scam, unknown
-        message_type_map = {
-            'notify': 'urgent' if featured_df['has_specific_time'].iloc[0] else 'personal',
-            'digest': 'business_update',  # Fixed: was 'update'
-            'mute': 'promotion'  # Fixed: was 'promotional'
-        }
-        message_type = message_type_map.get(predicted_class, 'unknown')
+        # Infer message_type separately from action. This fixes the old action-to-type shortcut.
+        message_type = self.type_inferer.infer(message_row, predicted_class, feature_dict)
 
-        # Extract features dict for reason generation
-        feature_dict = featured_df.iloc[0].to_dict()
-
-        # Generate specific reason
         reason = self.reason_generator.generate(
             action=predicted_class,
             message_type=message_type,
@@ -555,7 +657,6 @@ class MessageRoutingPipeline:
             confidence=calibrated_confidence
         )
 
-        # Extract evidence message IDs
         evidence_ids = self.user_extractor.get_evidence_message_ids(
             user_id=message_row['user_id'],
             message_text=message_row.get('message_text', ''),
@@ -609,10 +710,15 @@ class MessageRoutingPipeline:
         self.xgb_model.save_model(str(xgb_path))
         print(f"[OK] Saved XGBoost model: {xgb_path}")
 
-        # Save calibrator
+        # Save calibrator. JSON is the portable format used by load(); pickle is kept for compatibility.
+        calibrator_json_path = model_path / "calibrator.json"
+        with open(calibrator_json_path, 'w') as f:
+            json.dump(self.calibrator.calibrators, f, indent=2)
+        print(f"[OK] Saved calibrator JSON: {calibrator_json_path}")
+
         calibrator_path = model_path / "calibrator.pkl"
         joblib.dump(self.calibrator, str(calibrator_path))
-        print(f"[OK] Saved calibrator: {calibrator_path}")
+        print(f"[OK] Saved calibrator pickle: {calibrator_path}")
 
         # Save label encoder
         encoder_path = model_path / "label_encoder.pkl"
@@ -649,23 +755,35 @@ class MessageRoutingPipeline:
         self.xgb_model.load_model(str(xgb_path))
         print(f"[OK] Loaded XGBoost model: {xgb_path}")
 
-        # Load calibrator
-        calibrator_path = model_path / "calibrator.pkl"
-        self.calibrator = joblib.load(str(calibrator_path))
-        print(f"[OK] Loaded calibrator: {calibrator_path}")
-
-        # Load label encoder
-        encoder_path = model_path / "label_encoder.pkl"
-        self.label_encoder = joblib.load(str(encoder_path))
-        print(f"[OK] Loaded label encoder: {encoder_path}")
-
-        # Load metadata
+        # Load metadata before calibration so the calibrator can be reconstructed portably.
         metadata_path = model_path / "metadata.json"
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         self.feature_names = metadata['feature_names']
         self.classes = metadata['classes']
         print(f"[OK] Loaded metadata: {metadata_path}")
+
+        # Load label encoder
+        encoder_path = model_path / "label_encoder.pkl"
+        self.label_encoder = joblib.load(str(encoder_path))
+        print(f"[OK] Loaded label encoder: {encoder_path}")
+
+        # Load calibrator without depending on a pickled custom class path.
+        self.calibrator = ConfidenceCalibrator()
+        calibrator_json_path = model_path / "calibrator.json"
+        if calibrator_json_path.exists():
+            with open(calibrator_json_path, 'r') as f:
+                self.calibrator.calibrators = json.load(f)
+            print(f"[OK] Loaded calibrator JSON: {calibrator_json_path}")
+        else:
+            for class_name in self.classes:
+                target_min, target_max = self.calibrator.target_ranges[class_name]
+                self.calibrator.calibrators[class_name] = {
+                    'min': target_min,
+                    'max': target_max,
+                    'scale': target_max - target_min
+                }
+            print("[OK] Reconstructed calibrator from target ranges")
 
         print("\n[SUCCESS] All models loaded successfully!")
 
