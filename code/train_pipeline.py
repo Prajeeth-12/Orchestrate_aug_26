@@ -1,4 +1,4 @@
-﻿"""
+"""
 GPU-Optimized ML Training Pipeline for Message Notification Router
 
 Hardware: NVIDIA RTX 4050, 6GB VRAM, CUDA 13.2
@@ -171,15 +171,31 @@ class MessageTypeInferer:
 
     def infer(self, row: pd.Series, action: str, features: Optional[Dict[str, Any]] = None) -> str:
         text = row.get('message_text', '')
-        if pd.isna(text):
-            text = ''
+        if pd.isna(text) or str(text).strip() == '':
+            # NaN/empty text: voice notes or media-only messages
+            if action == 'mute':
+                return 'spam'
+            if action == 'notify':
+                return 'urgent'
+            return 'personal'
         text_lower = str(text).lower()
         conversation_type = str(row.get('conversation_type', '')).lower()
         media_type = row.get('media_type', '')
         forwarded_count = row.get('forwarded_count', 0)
 
+        # Scam first (highest priority safety check)
         if self._is_scam(text_lower):
             return 'scam'
+
+        # @mention + question → urgent (before payment to avoid false match)
+        if self._has_mention_with_question(text_lower, features):
+            return 'urgent'
+
+        # Unknown/unfamiliar sender patterns before event (to avoid "volunteer sheet" → event)
+        if self._is_unknown_personal(text_lower):
+            return 'unknown'
+
+        # Payment (after @mention check, with stricter matching)
         if self._is_payment(text_lower):
             return 'payment'
         if self._is_greeting(text_lower):
@@ -197,8 +213,6 @@ class MessageTypeInferer:
         if conversation_type == 'personal':
             if action == 'mute' and self._is_spam(text_lower):
                 return 'spam'
-            if self._is_unknown_personal(text_lower):
-                return 'unknown'
             return 'personal'
         if action == 'mute' and self._is_spam(text_lower):
             return 'spam'
@@ -206,22 +220,48 @@ class MessageTypeInferer:
             return 'personal'
         return 'personal' if action == 'notify' else 'business_update'
 
+    def _has_mention_with_question(self, text: str, features: Optional[Dict[str, Any]]) -> bool:
+        """Check if message has @mention with question — strong signal for urgent.
+        Excludes casual/non-urgent phrasing like 'when you get 5 mins can you call?'"""
+        # Casual phrases that negate urgency even with @mention + ?
+        casual_phrases = ['when you get', 'if you get', 'can you call', 'no rush',
+                          'nothing urgent', 'nothing dramatic', 'no pressure',
+                          'whenever', 'no need', 'just checking']
+        if any(phrase in text for phrase in casual_phrases):
+            return False
+        if features:
+            return bool(features.get('at_mention_with_question', False))
+        return bool(re.search(r'@u_\d+', text)) and '?' in text
+
     def _is_scam(self, text: str) -> bool:
         scam_terms = ['otp', 'password', 'verification code', 'login code', 'verify now',
-                      'account-login', 'wallet verification', 'blocked', 'routing rules']
+                      'account-login', 'wallet verification', 'blocked', 'routing rules',
+                      'workspace access', 'account locked', 'expire today',
+                      'suspended', 'profile will be restricted', 'login code',
+                      'send the code', 'reply with the', 'confirm your pin']
         hits = sum(1 for term in scam_terms if term in text)
         return hits >= 2 or 'ignore all previous' in text or 'reply with the otp' in text
 
     def _is_payment(self, text: str) -> bool:
-        terms = ['payment', 'refund', 'amount due', 'card statement', 'wallet',
-                 'pay ', 'paid', 'invoice', 'bill']
-        return any(term in text for term in terms) and not self._is_scam(text)
+        # Strict payment terms — exclude advisory/safety messages
+        payment_terms = ['payment due', 'refund', 'amount due', 'card statement',
+                         'pay ', 'paid', 'invoice', 'bill', 'reward points',
+                         'payment date', 'processing fee']
+        exclude_terms = ['safety advisory', 'never ask for otp', 'never ask for payment']
+        if any(term in text for term in exclude_terms):
+            return False
+        return any(term in text for term in payment_terms) and not self._is_scam(text)
 
     def _is_greeting(self, text: str) -> bool:
         return any(term in text for term in ['good morning', 'good evening', 'good vibes',
                                              'stay positive', 'blessings', 'keep smiling'])
 
     def _is_promotion(self, text: str, conversation_type: str) -> bool:
+        # Skip promotion if it's a safety advisory or informational business message
+        safety_terms = ['safety advisory', 'never ask for otp', 'never ask for payment',
+                        'advisory image', 'do not share']
+        if any(term in text for term in safety_terms):
+            return False
         promo_terms = ['off', 'offer', 'discount', 'sale', 'limited', 'unsubscribe',
                        'selling', 'price', 'rs ', 'itinerary', 'travel deal', 'plot',
                        'token', 'shop', 'shopping', 'viewed', 'benefit', 'kurta']
@@ -231,7 +271,7 @@ class MessageTypeInferer:
 
     def _is_event(self, text: str, media_type: Any) -> bool:
         event_terms = ['bus', 'school', 'circular', 'consent', 'field trip', 'cultural night',
-                       'form is open', 'registrations', 'saturday', 'internship approval',
+                       'form is open', 'registrations', 'internship approval',
                        'fire alarm test', 'sync is still on', 'meeting', 'review got pulled',
                        'appointment', 'scheduled time', 'faculty']
         return any(term in text for term in event_terms)
@@ -239,8 +279,16 @@ class MessageTypeInferer:
     def _is_urgent(self, text: str, action: str, features: Optional[Dict[str, Any]]) -> bool:
         if action != 'notify':
             return False
+        # Only match genuinely urgent time references, not casual ones like
+        # "when you get 5 mins" or "call me later"
+        casual_phrases = ['when you get', 'if you get', 'can you call', 'no rush',
+                          'nothing urgent', 'nothing dramatic', 'no pressure',
+                          'whenever', 'no need']
+        if any(phrase in text for phrase in casual_phrases):
+            return False
         urgent_terms = ['urgent', 'asap', 'emergency', 'escalation', 'in 20 minutes',
-                        'next 10 minutes', 'before eod', 'deadline', 'cannot wait']
+                        'next 10 minutes', 'before eod', 'deadline', 'cannot wait',
+                        'in 30 minutes', 'next 30 minutes', 'alert threshold']
         has_feature_time = bool(features and features.get('has_specific_time', False))
         return has_feature_time or any(term in text for term in urgent_terms)
 
@@ -248,14 +296,16 @@ class MessageTypeInferer:
         if conversation_type != 'business':
             return False
         update_terms = ['order', 'delivery', 'pickup', 'statement', 'account',
-                        'booking', 'ticket', 'advisory', 'update', 'review']
+                        'booking', 'ticket', 'advisory', 'update', 'review',
+                        'safety advisory']
         return any(term in text for term in update_terms)
 
     def _is_spam(self, text: str) -> bool:
         return any(term in text for term in ['click here', 'act now', 'forward to ten', 'chain'])
 
     def _is_unknown_personal(self, text: str) -> bool:
-        return any(term in text for term in ['found your number', 'got this number', 'volunteer sheet'])
+        return any(term in text for term in ['found your number', 'got this number',
+                                             'volunteer sheet', 'got this number from'])
 
 class ConfidenceCalibrator:
     """
@@ -626,6 +676,9 @@ class MessageRoutingPipeline:
             evidence_ids = self.user_extractor.get_evidence_message_ids(
                 user_id=message_row['user_id'],
                 message_text=message_row.get('message_text', ''),
+                sender_user_id=message_row.get('sender_user_id'),
+                group_id=message_row.get('group_id'),
+                business_id=message_row.get('business_id'),
                 top_k=3
             )
             return {
@@ -660,6 +713,9 @@ class MessageRoutingPipeline:
         evidence_ids = self.user_extractor.get_evidence_message_ids(
             user_id=message_row['user_id'],
             message_text=message_row.get('message_text', ''),
+            sender_user_id=message_row.get('sender_user_id'),
+            group_id=message_row.get('group_id'),
+            business_id=message_row.get('business_id'),
             top_k=3
         )
 

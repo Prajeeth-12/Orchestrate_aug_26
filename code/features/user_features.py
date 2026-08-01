@@ -244,14 +244,20 @@ class UserHistoryFeatureExtractor:
             self._message_vectors = None
             self._message_text_map = {}
 
-    def get_evidence_message_ids(self, user_id: str, message_text: str, top_k: int = 3) -> str:
+    def get_evidence_message_ids(self, user_id: str, message_text: str, top_k: int = 3,
+                                  sender_user_id: str = None, group_id: str = None,
+                                  business_id: str = None) -> str:
         """
         Find similar messages from user's history using TF-IDF similarity.
+        Scopes search: same sender > same group > same business > any user history.
 
         Args:
             user_id: Receiving user ID
             message_text: Current message text
             top_k: Number of similar messages to return
+            sender_user_id: Sender user ID for scoping
+            group_id: Group ID for scoping
+            business_id: Business ID for scoping
 
         Returns:
             Semicolon-separated message IDs or 'none'
@@ -278,24 +284,43 @@ class UserHistoryFeatureExtractor:
         if len(user_history) == 0:
             return 'none'
 
+        # Try scoped search: same sender > same group > same business > full user history
+        search_history = user_history
+        if sender_user_id and pd.notna(sender_user_id) and 'sender_user_id' in user_history.columns:
+            scoped = user_history[user_history['sender_user_id'] == sender_user_id]
+            if len(scoped) > 0:
+                search_history = scoped
+
+        if len(search_history) == len(user_history):
+            if group_id and pd.notna(group_id) and 'group_id' in user_history.columns:
+                scoped = user_history[user_history['group_id'] == group_id]
+                if len(scoped) > 0:
+                    search_history = scoped
+
+        if len(search_history) == len(user_history):
+            if business_id and pd.notna(business_id) and 'business_id' in user_history.columns:
+                scoped = user_history[user_history['business_id'] == business_id]
+                if len(scoped) > 0:
+                    search_history = scoped
+
         try:
-            # Get indices of user's messages in the full history
-            user_indices = user_history.index.tolist()
+            # Get indices of scoped messages in the full history
+            search_indices = search_history.index.tolist()
 
             # Transform current message
             current_vector = self._tfidf_vectorizer.transform([message_text])
 
-            # Compute similarity only with user's messages
-            user_vectors = self._message_vectors[user_indices]
-            similarities = cosine_similarity(current_vector, user_vectors)[0]
+            # Compute similarity only with scoped messages
+            search_vectors = self._message_vectors[search_indices]
+            similarities = cosine_similarity(current_vector, search_vectors)[0]
 
-            # Get top-k matches with similarity > 0.3
+            # Get top-k matches with similarity > 0.2 (lowered from 0.3 for scoped search)
             top_indices = similarities.argsort()[-top_k:][::-1]
 
             matched_ids = []
             for idx in top_indices:
-                if similarities[idx] > 0.3:
-                    actual_idx = user_indices[idx]
+                if similarities[idx] > 0.2:
+                    actual_idx = search_indices[idx]
                     msg_id = history.iloc[actual_idx]['message_id']
                     matched_ids.append(msg_id)
 
