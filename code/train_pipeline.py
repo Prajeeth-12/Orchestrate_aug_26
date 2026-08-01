@@ -441,11 +441,12 @@ class MessageRoutingPipeline:
         # Layer 4: Calibrate confidence
         calibrated_confidence = self.calibrator.transform(raw_confidence, predicted_class)
 
-        # Determine message type (simplified logic)
+        # Determine message type (schema-compliant)
+        # Allowed: personal, urgent, event, payment, business_update, promotion, greeting, forward, spam, scam, unknown
         message_type_map = {
             'notify': 'urgent' if featured_df['has_specific_time'].iloc[0] else 'personal',
-            'digest': 'update',
-            'mute': 'promotional'
+            'digest': 'business_update',  # Fixed: was 'update'
+            'mute': 'promotion'  # Fixed: was 'promotional'
         }
 
         return {
