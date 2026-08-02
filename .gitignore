@@ -16,3 +16,7 @@ exploration_plots.png
 # Packaging
 submission*.zip
 *.zip
+__pycache__/
+_scratch/*.zip
+_scratch/*.png
+_scratch/output_new.csv
