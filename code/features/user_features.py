@@ -314,7 +314,20 @@ class UserHistoryFeatureExtractor:
             search_vectors = self._message_vectors[search_indices]
             similarities = cosine_similarity(current_vector, search_vectors)[0]
 
-            # Get top-k matches with similarity > 0.2 (lowered from 0.3 for scoped search)
+            # Recency weighting: boost recent messages slightly
+            if 'created_at' in history.columns:
+                try:
+                    timestamps = pd.to_datetime(history.iloc[search_indices]['created_at'], errors='coerce')
+                    max_ts = timestamps.max()
+                    if pd.notna(max_ts):
+                        days_ago = (max_ts - timestamps).dt.total_seconds() / 86400
+                        days_ago = days_ago.fillna(days_ago.max() if len(days_ago) > 0 else 30)
+                        recency_boost = np.exp(-days_ago.values / 60.0) * 0.15
+                        similarities = similarities + recency_boost
+                except Exception:
+                    pass
+
+            # Get top-k matches with combined score > 0.2
             top_indices = similarities.argsort()[-top_k:][::-1]
 
             matched_ids = []
@@ -412,7 +425,7 @@ class UserHistoryFeatureExtractor:
 
         try:
             # Transform current message
-            current_vector = self._tfidf_vectorizer.transform([message_text_str])
+            current_vector = self._tfidf_vectorizer.transform([str(message_text) if message_text else ''])
 
             # Get historical message vectors
             history = self.data_loader.message_history

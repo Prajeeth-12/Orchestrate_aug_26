@@ -2,30 +2,30 @@ message_id,action,message_type,reason,confidence,evidence_message_ids
 sample_msg_001,notify,urgent,Time-sensitive message with specific deadline or constraint,0.87,message_0129;message_0189;message_0141
 sample_msg_002,notify,event,Time-sensitive message with specific deadline or constraint,0.87,message_0133;message_0209;message_0002
 sample_msg_003,notify,urgent,Direct mention with question requiring response,0.86,message_0003;message_0169;message_0059
-sample_msg_004,notify,business_update,High-priority business_update message,0.9049,message_0004;message_0239;message_0105
-sample_msg_005,notify,event,Event invitation or schedule notification,0.9017,message_0005;message_0245;message_0064
+sample_msg_004,notify,business_update,High-priority business_update message,0.9149,message_0004;message_0239;message_0105
+sample_msg_005,notify,event,Event invitation or schedule notification,0.8619,message_0005;message_0245;message_0064
 sample_msg_006,notify,personal,Time-sensitive message with specific deadline or constraint,0.86,message_0363
-sample_msg_007,digest,promotion,General update or information for later review,0.8322,message_0007;message_0033;message_0272
-sample_msg_008,digest,event,Trusted sender update - useful but non-urgent information,0.8355,message_0008
-sample_msg_009,digest,greeting,Trusted sender update - useful but non-urgent information,0.8368,message_0009
-sample_msg_010,digest,personal,Trusted sender update - useful but non-urgent information,0.8392,message_0010
-sample_msg_011,digest,business_update,Trusted sender update - useful but non-urgent information,0.8386,message_0242;message_0011;message_0075
-sample_msg_012,digest,promotion,Trusted sender update - useful but non-urgent information,0.8376,message_0012
+sample_msg_007,digest,promotion,General update or information for later review,0.8708,message_0007;message_0033;message_0272
+sample_msg_008,digest,personal,Trusted sender update - useful but non-urgent information,0.82,message_0008
+sample_msg_009,digest,personal,Trusted sender update - useful but non-urgent information,0.82,message_0009
+sample_msg_010,digest,personal,Trusted sender update - useful but non-urgent information,0.82,message_0010
+sample_msg_011,digest,business_update,Trusted sender update - useful but non-urgent information,0.95,message_0242;message_0011;message_0075
+sample_msg_012,digest,promotion,Trusted sender update - useful but non-urgent information,0.95,message_0012
 sample_msg_013,mute,greeting,Message forwarded 6 times - likely spam chain content,0.83,message_0014;message_0013;message_0077
 sample_msg_014,mute,forward,Message forwarded 11 times - likely spam chain content,0.85,message_0016
 sample_msg_015,mute,promotion,Message forwarded 3 times - likely low-value chain content,0.81,message_0017;message_0018;message_0258
 sample_msg_019,mute,scam,Detected scam/phishing pattern with suspicious verification or OTP request,0.85,none
 sample_msg_020,mute,scam,Detected scam/phishing pattern with suspicious verification or OTP request,0.85,message_0024
-sample_msg_041,digest,personal,Trusted sender update - useful but non-urgent information,0.8373,none
-sample_msg_042,notify,urgent,High-priority urgent message requiring notification,0.9008,none
-sample_msg_043,mute,spam,Low trust sender with no prior positive interactions,0.8676,none
-sample_msg_044,digest,promotion,Trusted sender update - useful but non-urgent information,0.8339,message_0401;message_0066;message_0332
-sample_msg_045,mute,promotion,Low trust sender with no prior positive interactions,0.8684,message_0335;message_0115;message_0050
-sample_msg_046,notify,event,Event invitation or schedule notification,0.8947,message_0403;message_0051;message_0255
-sample_msg_047,mute,promotion,Low trust sender with no prior positive interactions,0.8664,message_0402
-sample_msg_048,digest,business_update,Trusted sender update - useful but non-urgent information,0.8251,message_0412
-sample_msg_049,digest,unknown,Casual greeting message - no immediate action required,0.8388,none
-sample_msg_050,digest,personal,Trusted sender update - useful but non-urgent information,0.8312,message_0359;message_0226;message_0225
+sample_msg_041,digest,unknown,Trusted sender update - useful but non-urgent information,0.95,none
+sample_msg_042,notify,urgent,High-priority urgent message requiring notification,0.8464,none
+sample_msg_043,mute,spam,Low trust sender with no prior positive interactions,0.95,none
+sample_msg_044,digest,promotion,Trusted sender update - useful but non-urgent information,0.8989,message_0401;message_0066;message_0332
+sample_msg_045,mute,promotion,Low trust sender with no prior positive interactions,0.95,message_0335;message_0115;message_0050
+sample_msg_046,notify,event,Event invitation or schedule notification,0.7444,message_0403;message_0051;message_0255
+sample_msg_047,mute,promotion,Low trust sender with no prior positive interactions,0.9394,message_0402
+sample_msg_048,digest,business_update,Trusted sender update - useful but non-urgent information,0.7517,message_0412
+sample_msg_049,digest,unknown,Casual greeting message - no immediate action required,0.95,none
+sample_msg_050,digest,personal,Trusted sender update - useful but non-urgent information,0.82,message_0359;message_0226;message_0225
 sample_msg_051,notify,urgent,Time-sensitive message with specific deadline or constraint,0.87,message_0228;message_0362;message_0055
 sample_msg_052,mute,scam,Low trust sender with no prior positive interactions,0.85,message_0238
-sample_msg_053,mute,scam,Potential scam or malicious content - safety filter applied,0.87,message_0369
+sample_msg_053,mute,scam,Blocked by security guardrail: prompt injection or router-manipulation attempt detected.,0.99,none

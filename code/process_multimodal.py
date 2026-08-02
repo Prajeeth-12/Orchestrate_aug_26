@@ -7,7 +7,8 @@ import pandas as pd
 import json
 import os
 from pathlib import Path
-from gemini_multimodal import transcribe_voice_gemini, analyze_image_gemini
+from bedrock_multimodal import transcribe_voice_bedrock as transcribe_voice
+from bedrock_multimodal import analyze_image_bedrock as analyze_image
 import time
 
 
@@ -20,6 +21,7 @@ def process_voice_notes():
 
     messages = pd.read_csv('dataset/messages.csv')
     voice_msgs = messages[messages['media_type'] == 'voice']
+    voice_notes = pd.read_csv('dataset/voice_notes.csv').set_index('voice_note_id')
 
     print(f"Found {len(voice_msgs)} voice messages to transcribe")
     print()
@@ -29,17 +31,21 @@ def process_voice_notes():
 
     for idx, row in voice_msgs.iterrows():
         msg_id = row['message_id']
-        media_file = row['media_file_path']
-        audio_path = f"dataset/media/audio/{media_file}"
+        media_id = row['media_id']
+        if media_id in voice_notes.index:
+            media_file = voice_notes.loc[media_id, 'file_path']
+            audio_path = f"dataset/{media_file}"
+        else:
+            audio_path = ""
 
-        print(f"[{success_count+1}/{len(voice_msgs)}] {msg_id}: {media_file}")
+        print(f"[{success_count+1}/{len(voice_msgs)}] {msg_id}: {media_id}")
 
         if not os.path.exists(audio_path):
-            print(f"   [SKIP] File not found")
+            print(f"   [SKIP] File not found: {audio_path}")
             results[msg_id] = None
             continue
 
-        text = transcribe_voice_gemini(audio_path)
+        text = transcribe_voice(audio_path)
 
         if text:
             print(f"   [OK] Transcribed: '{text[:60]}...'")
@@ -49,8 +55,8 @@ def process_voice_notes():
             print(f"   [FAIL] Transcription failed")
             results[msg_id] = None
 
-        # Rate limit protection (15 RPM for free tier)
-        time.sleep(4)
+        # Bedrock API is quite fast, 1s delay is enough
+        time.sleep(1)
 
     print()
     print(f"Completed: {success_count}/{len(voice_msgs)} successful")
@@ -75,6 +81,7 @@ def process_images():
 
     messages = pd.read_csv('dataset/messages.csv')
     image_msgs = messages[messages['media_type'] == 'image']
+    images = pd.read_csv('dataset/images.csv').set_index('image_id')
 
     print(f"Found {len(image_msgs)} images to analyze")
     print()
@@ -84,17 +91,21 @@ def process_images():
 
     for idx, row in image_msgs.iterrows():
         msg_id = row['message_id']
-        media_file = row['media_file_path']
-        image_path = f"dataset/media/images/{media_file}"
+        media_id = row['media_id']
+        if media_id in images.index:
+            media_file = images.loc[media_id, 'file_path']
+            image_path = f"dataset/{media_file}"
+        else:
+            image_path = ""
 
-        print(f"[{success_count+1}/{len(image_msgs)}] {msg_id}: {media_file}")
+        print(f"[{success_count+1}/{len(image_msgs)}] {msg_id}: {media_id}")
 
         if not os.path.exists(image_path):
-            print(f"   [SKIP] File not found")
+            print(f"   [SKIP] File not found: {image_path}")
             results[msg_id] = None
             continue
 
-        analysis = analyze_image_gemini(image_path)
+        analysis = analyze_image(image_path)
 
         if analysis:
             print(f"   [OK] Urgency: {analysis.get('urgency', 'unknown')}, Category: {analysis.get('category', 'unknown')}")
@@ -106,8 +117,8 @@ def process_images():
             print(f"   [FAIL] Analysis failed")
             results[msg_id] = None
 
-        # Rate limit protection (15 RPM for free tier)
-        time.sleep(4)
+        # Bedrock API is fast enough, 1s delay
+        time.sleep(1)
 
     print()
     print(f"Completed: {success_count}/{len(image_msgs)} successful")

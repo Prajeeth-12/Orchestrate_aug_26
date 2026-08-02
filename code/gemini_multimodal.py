@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict, Optional
 import json
 import time
+from dotenv import load_dotenv
+load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -43,7 +45,7 @@ def transcribe_voice_gemini(audio_path: str) -> Optional[str]:
             '.ogg': 'audio/ogg'
         }.get(ext, 'audio/mp3')
 
-        url = f"{BASE_URL}/models/gemini-2.0-flash:generateContent"
+        url = f"{BASE_URL}/models/gemini-2.5-flash:generateContent"
         headers = {
             "Content-Type": "application/json",
             "X-goog-api-key": GEMINI_API_KEY
@@ -111,7 +113,7 @@ def analyze_image_gemini(image_path: str) -> Optional[Dict]:
             '.webp': 'image/webp'
         }.get(ext, 'image/jpeg')
 
-        url = f"{BASE_URL}/models/gemini-2.0-flash:generateContent"
+        url = f"{BASE_URL}/models/gemini-2.5-flash:generateContent"
         headers = {
             "Content-Type": "application/json",
             "X-goog-api-key": GEMINI_API_KEY

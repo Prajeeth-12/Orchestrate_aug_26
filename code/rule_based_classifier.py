@@ -86,7 +86,10 @@ class RuleBasedClassifier:
     SCAM_KEYWORDS = [
         'otp', 'password', 'verify', 'blocked', 'expire', 'confirm',
         'account', 'security', 'alert', 'suspend', 'urgent', 'immediate',
-        'click', 'link', 'login', 'credential', 'code', 'pin'
+        'click', 'link', 'login', 'credential', 'code', 'pin',
+        # Bilingual / phishing-specific terms
+        'leak', 'batao', 'hold', 'wallet', 'payout', 'processing fee',
+        'reward', 'claim', 'reactivation fee', 'verification code',
     ]
 
     # Spam patterns
@@ -123,11 +126,56 @@ class RuleBasedClassifier:
         r'in\s+\d+\s+(?:min|hour|hr)',  # "in 20 minutes"
         r'by\s+\d+',  # "by 3"
         r'after\s+\d+',  # "after 6"
+        r'(?:reach|arrive|come|be\s+there)\s+by\s+\w+',  # "reach by three forty"
+        r'(?:moved|shifted|changed)\s+to\s+\w+\s+(?:fifteen|thirty|forty|forty five|am|pm)',  # "moved to six fifteen am"
+        r'(?:pickup|pick\s*up)\s+(?:will|has|is)',  # "pickup will be from..."
     ]
 
-    def __init__(self):
-        """Initialize the classifier"""
-        pass
+    # Negation of urgency patterns — message explicitly says "not urgent"
+    NEGATION_PATTERNS = [
+        'nothing urgent', 'not urgent', 'no rush', 'no pressure',
+        'nothing dramatic', 'no need to respond', 'whenever you',
+        'take your time', 'no hurry', 'no need to reply', 'no need to call',
+        'if you get time', 'if you get a chance', 'if you get a sec',
+        'when you get a chance', 'nothing blocking', 'when you can',
+        'at your convenience', 'no deadline', 'just checking in',
+    ]
+
+    def __init__(self, business_accounts: Optional[pd.DataFrame] = None):
+        """Initialize the classifier.
+
+        Args:
+            business_accounts: Optional business_accounts.csv DataFrame used to
+                detect high-risk lookalike business accounts (unverified,
+                domain mismatch, high user reports). If None, the trust rule
+                is skipped and behavior is identical to the unarmed classifier.
+        """
+        self._business_lookup = {}
+        if business_accounts is not None:
+            for _, r in business_accounts.iterrows():
+                official = str(r.get('official_domain', '')).strip().lower() if pd.notna(r.get('official_domain')) else ''
+                used = str(r.get('domain_used_by_sender', '')).strip().lower() if pd.notna(r.get('domain_used_by_sender')) else ''
+                self._business_lookup[str(r['business_id'])] = {
+                    'verified': int(r.get('verified', 0) or 0),
+                    'reports_30d': int(r.get('user_reports_30d', 0) or 0),
+                    'age_days': int(r.get('account_age_days', 0) or 0),
+                    'domain_mismatch': bool(official and used and official != used)
+                }
+
+    def _is_high_risk_business(self, row: pd.Series) -> bool:
+        """Detect phishing lookalike business accounts from trust signals.
+
+        A business message is high-risk if the account is unverified with a
+        domain mismatch AND very young, OR if it accumulated many user reports
+        in 30 days. These are strong, deterministic phishing signals.
+        """
+        bid = row.get('business_id')
+        if pd.isna(bid) or str(bid) not in self._business_lookup:
+            return False
+        b = self._business_lookup[str(bid)]
+        if b['reports_30d'] >= 15:
+            return True
+        return b['verified'] == 0 and b['domain_mismatch'] and b['age_days'] < 90
 
     def classify_message(self, row: pd.Series) -> Optional[Dict[str, any]]:
         """
@@ -150,14 +198,51 @@ class RuleBasedClassifier:
         forwarded_count = row.get('forwarded_count', 0)
         conversation_type = row.get('conversation_type', '')
 
-        # Rule 1: MUTE - Forwarded messages (high confidence)
-        if forwarded_count > 0:
+        # Rule 0: MUTE - High-risk lookalike business account (phishing)
+        # Unverified/domain-mismatched/young accounts with high user reports
+        # are phishing even when the text reads like a legitimate refund or
+        # payout notice. Deterministic trust signal from business_accounts.csv.
+        if conversation_type == 'business' and self._is_high_risk_business(row):
+            return {
+                'action': 'mute',
+                'message_type': 'scam',
+                'reason': 'High-risk business account: unverified/lookalike domain with high user reports - likely phishing',
+                'confidence': 0.92,
+                'evidence_message_ids': 'none'
+            }
+
+        # Rule 1: MUTE - Forwarded messages (scaled by count)
+        # forward_count >= 5: always mute (chain/spam)
+        # forward_count 2-4: mute unless business transactional content
+        # forward_count == 1: mute only if greeting/chain pattern
+        if forwarded_count >= 5:
             confidence = self._get_forward_confidence(forwarded_count)
             return {
                 'action': 'mute',
                 'message_type': 'forward',
-                'reason': f'Message forwarded {forwarded_count} times - likely low-value chain content',
+                'reason': f'Message forwarded {forwarded_count} times - likely spam chain content',
                 'confidence': confidence,
+                'evidence_message_ids': 'none'
+            }
+        if forwarded_count >= 2:
+            # Exempt business transactional messages (refunds, payouts, orders)
+            if conversation_type == 'business' and self._is_business_transactional(message_text):
+                pass  # fall through to ML
+            else:
+                confidence = self._get_forward_confidence(forwarded_count)
+                return {
+                    'action': 'mute',
+                    'message_type': 'forward',
+                    'reason': f'Message forwarded {forwarded_count} times - likely low-value chain content',
+                    'confidence': confidence,
+                    'evidence_message_ids': 'none'
+                }
+        if forwarded_count == 1 and self._is_chain_content(message_text):
+            return {
+                'action': 'mute',
+                'message_type': 'forward',
+                'reason': 'Single-forwarded chain/greeting content - low value',
+                'confidence': 0.79,
                 'evidence_message_ids': 'none'
             }
 
@@ -211,8 +296,64 @@ class RuleBasedClassifier:
                 'evidence_message_ids': 'none'
             }
 
+        # Rule 7: DIGEST - Explicit negation of urgency ("nothing urgent", "no rush")
+        if self._has_negation_of_urgency(message_text):
+            return {
+                'action': 'digest',
+                'message_type': 'personal',
+                'reason': 'Sender explicitly indicated non-urgent message for later review',
+                'confidence': 0.82,
+                'evidence_message_ids': 'none'
+            }
+
+        # Rule 8: NOTIFY - School/transport/logistics with time reference (group context)
+        if conversation_type == 'group' and self._is_logistics_update(message_text):
+            return {
+                'action': 'notify',
+                'message_type': 'event',
+                'reason': 'Time-sensitive logistics or transport update requiring immediate attention',
+                'confidence': 0.87,
+                'evidence_message_ids': 'none'
+            }
+
         # No rule matched
         return None
+
+    def _is_chain_content(self, text: str) -> bool:
+        """Detect chain/greeting/blessing forwards that are always low-value."""
+        chain_terms = [
+            'forward to', 'share with', 'send to ten', 'forward to ten',
+            'fwd as received', 'sharing here', 'blessings', 'good vibes',
+            'stay positive', 'keep smiling', 'luck changes when you share',
+            'positive energy', 'bhagwan', 'forward this', 'share kar'
+        ]
+        return any(term in text for term in chain_terms)
+
+    def _is_business_transactional(self, text: str) -> bool:
+        """Detect legitimate business transactional messages (refunds, payouts, orders).
+        These should not be blanket-muted even if forward_count is 2-4."""
+        transactional_terms = [
+            'refund', 'payout', 'order', 'delivery', 'booking',
+            'payment processed', 'payment failed', 'could not be processed',
+            'transaction', 'invoice', 'receipt', 'statement',
+            'scheduled for', 'has been shipped', 'dispatched'
+        ]
+        return any(term in text for term in transactional_terms)
+
+    def _is_logistics_update(self, text: str) -> bool:
+        """Detect school/transport/logistics updates with time sensitivity.
+        Excludes seller/marketplace messages (pickup for purchases)."""
+        # Seller/marketplace exclusion
+        seller_terms = ['selling', 'jacket', 'kurta', 'collect it', 'interested',
+                       'dm if', 'price', 'bought', 'asking']
+        if any(term in text for term in seller_terms):
+            return False
+        logistics_terms = ['transport', 'school', 'bus', 'driver',
+                          'reach by', 'arrive by', 'moved to', 'shifted to',
+                          'changed to', 'instead of the main']
+        has_logistics = any(term in text for term in logistics_terms)
+        has_time = any(re.search(pattern, text) for pattern in self.TIME_PATTERNS)
+        return has_logistics and has_time
 
     def _is_instruction_injection(self, text: str) -> bool:
         """
@@ -227,10 +368,21 @@ class RuleBasedClassifier:
 
         injection_patterns = [
             r'ignore\s+(?:all\s+)?previous\s+(?:rules|routing|instructions)',
+            r'ignore\s+(?:the\s+)?routing',
+            r'ignore\s+sender\s+risk',
             r'mark\s+this\s+(?:message\s+)?as\s+(?:notify|digest|mute)',
+            r'classify\s+this\s+as\s+(?:notify|digest|mute|urgent)',
+            r'route\s+as\s+notify',
+            r'set\s+action\s+to\s+(?:notify|digest|mute)',
             r'override\s+(?:the\s+)?routing',
             r'change\s+(?:the\s+)?classification',
+            r'routing\s+override',
+            r'internal\s+router\s+metadata',
+            r'system\s+note\s+for\s+the\s+notification\s+router',
+            r'assistant\s+instruction',
+            r'router\s+instruction',
             r'actual\s+message:',  # Often used after injection attempt
+            r'always\s+mark\s+this\s+as',
         ]
 
         return any(re.search(pattern, text_lower) for pattern in injection_patterns)
@@ -323,6 +475,10 @@ class RuleBasedClassifier:
 
         return has_mention and has_question
 
+    def _has_negation_of_urgency(self, text: str) -> bool:
+        """Check if message explicitly negates urgency."""
+        return any(neg in text for neg in self.NEGATION_PATTERNS)
+
     def _is_urgent_time_sensitive(self, text: str, conversation_type: str) -> bool:
         """
         Detect urgent time-sensitive messages.
@@ -330,8 +486,13 @@ class RuleBasedClassifier:
         Criteria:
         - Contains specific time reference (20 mins, 7:35, before EOD)
         - AND (has urgency indicators OR has time-context words for group messages)
+        - NOT negated by explicit "nothing urgent" / "no rush" language
         """
         text_lower = text.lower()
+
+        # Negation overrides — if message says "nothing urgent", never classify as urgent
+        if self._has_negation_of_urgency(text_lower):
+            return False
 
         # Check for time patterns
         has_time_ref = any(re.search(pattern, text_lower) for pattern in self.TIME_PATTERNS)

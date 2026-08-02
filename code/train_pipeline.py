@@ -77,94 +77,110 @@ from rule_based_classifier import RuleBasedClassifier
 
 class ReasonGenerator:
     """
-    Generate human-readable specific reasons for routing decisions.
+    Generate human-readable, content-specific reasons for routing decisions.
+    Reasons incorporate sender context, message intent, and evidence signals.
     """
 
     def generate(self, action: str, message_type: str, features: Dict[str, Any],
-                 text: str, confidence: float) -> str:
-        """
-        Generate specific reason based on action and features.
+                 text: str, confidence: float, message_row: Optional[pd.Series] = None) -> str:
+        text_str = str(text) if text and not pd.isna(text) else ''
+        snippet = self._extract_snippet(text_str)
+        conv_type = ''
+        sender_id = ''
+        if message_row is not None:
+            conv_type = str(message_row.get('conversation_type', ''))
+            sender_id = str(message_row.get('sender_user_id', ''))
+        sender_ctx = self._sender_context(conv_type, sender_id, features)
 
-        Args:
-            action: Predicted action (notify/digest/mute)
-            message_type: Classified message type
-            features: Feature dictionary
-            text: Message text
-            confidence: Confidence score
-
-        Returns:
-            Human-readable reason string
-        """
-        # NOTIFY reasons
         if action == 'notify':
-            if features.get('has_specific_time', False):
-                return "Time-sensitive message with specific deadline or constraint"
-
-            if features.get('has_at_mention', False) and features.get('has_question', False):
-                return "Direct mention with question requiring response"
-
-            if message_type == 'payment':
-                return "Payment notification requiring immediate attention"
-
-            if message_type == 'urgent':
-                return "High-priority urgent message requiring notification"
-
-            if message_type == 'event':
-                return "Event invitation or schedule notification"
-
-            if features.get('sender_trust_score', 0.5) > 0.7:
-                return "Important message from highly trusted sender"
-
-            return f"High-priority {message_type} message"
-
-        # MUTE reasons
+            return self._notify_reason(message_type, features, snippet, sender_ctx, text_str)
         if action == 'mute':
-            if features.get('scam_keyword_count', 0) >= 2:
-                return "Detected scam/phishing pattern with suspicious verification or OTP request"
-
-            forwarded = features.get('forwarded_count', 0)
-            if forwarded > 5:
-                return f"Message forwarded {forwarded} times - likely spam chain content"
-            elif forwarded > 0:
-                return f"Message forwarded {forwarded} times - likely low-value chain content"
-
-            if features.get('sender_trust_score', 0.5) < 0.2:
-                return "Low trust sender with no prior positive interactions"
-
-            if message_type == 'promotion':
-                return "Promotional content from business - filtered as low priority"
-
-            if message_type == 'spam':
-                return "Spam content detected - aggressive marketing or unwanted message"
-
-            if message_type == 'scam':
-                return "Potential scam or malicious content - safety filter applied"
-
-            return "Low-value content filtered as spam"
-
-        # DIGEST reasons
+            return self._mute_reason(message_type, features, snippet, sender_ctx, text_str)
         if action == 'digest':
-            if features.get('sender_trust_score', 0.5) > 0.7:
-                return "Trusted sender update - useful but non-urgent information"
-
-            if message_type == 'business_update':
-                return "Business update from opted-in service - for later review"
-
-            if message_type == 'event':
-                return "Event information or announcement - review when convenient"
-
-            if features.get('has_greeting', False):
-                return "Casual greeting message - no immediate action required"
-
-            if message_type == 'forward':
-                return "Forwarded information message - useful for later"
-
-            if features.get('has_negation_of_urgency', False):
-                return "Non-urgent update explicitly marked for later review"
-
-            return "General update or information for later review"
-
+            return self._digest_reason(message_type, features, snippet, sender_ctx, text_str)
         return f"Classified as {message_type} with {confidence:.2f} confidence"
+
+    def _notify_reason(self, msg_type: str, feat: Dict, snippet: str, sender: str, text: str) -> str:
+        if feat.get('has_specific_time', False):
+            if msg_type == 'urgent':
+                return f"Time-critical message requiring immediate action{sender}: {snippet}"
+            return f"Time-sensitive update with deadline{sender}: {snippet}"
+        if feat.get('has_at_mention', False) and feat.get('has_question', False):
+            return f"Direct mention requesting response{sender}: {snippet}"
+        if msg_type == 'payment':
+            return f"Payment notification requiring attention{sender}: {snippet}"
+        if msg_type == 'urgent':
+            return f"High-priority urgent message{sender}: {snippet}"
+        if msg_type == 'event':
+            return f"Event or schedule update needing action{sender}: {snippet}"
+        if msg_type == 'business_update':
+            return f"Important business update{sender}: {snippet}"
+        if feat.get('sender_trust_score', 0.5) > 0.7:
+            return f"Message from trusted sender requiring attention{sender}: {snippet}"
+        return f"High-priority {msg_type} message{sender}: {snippet}"
+
+    def _mute_reason(self, msg_type: str, feat: Dict, snippet: str, sender: str, text: str) -> str:
+        if feat.get('scam_keyword_count', 0) >= 2:
+            return f"Scam/phishing pattern detected with suspicious verification request{sender}"
+        forwarded = feat.get('forwarded_count', 0)
+        if forwarded > 5:
+            return f"Chain content forwarded {forwarded} times — repetitive low-value message{sender}"
+        if forwarded > 0:
+            return f"Forwarded {forwarded} times with no personal context{sender}: {snippet}"
+        if msg_type == 'scam':
+            return f"Potential scam or router-manipulation attempt blocked{sender}"
+        if msg_type == 'spam':
+            return f"Aggressive promotional spam filtered{sender}: {snippet}"
+        if msg_type == 'promotion':
+            dismiss_rate = feat.get('category_dismiss_rate', 0)
+            if dismiss_rate > 0.5:
+                return f"Promotional message from sender user typically dismisses ({dismiss_rate:.0%} dismiss rate){sender}"
+            return f"Promotional content filtered as low priority{sender}: {snippet}"
+        if feat.get('sender_trust_score', 0.5) < 0.2:
+            return f"Low-trust sender with no positive interaction history{sender}: {snippet}"
+        return f"Low-value content muted{sender}: {snippet}"
+
+    def _digest_reason(self, msg_type: str, feat: Dict, snippet: str, sender: str, text: str) -> str:
+        if feat.get('has_negation_of_urgency', False):
+            return f"Sender explicitly indicated non-urgent — safe for later review{sender}: {snippet}"
+        if feat.get('has_greeting', False):
+            return f"Casual greeting with no action required{sender}: {snippet}"
+        if msg_type == 'business_update':
+            return f"Non-urgent business update for later review{sender}: {snippet}"
+        if msg_type == 'event':
+            return f"Event information without immediate deadline{sender}: {snippet}"
+        if msg_type == 'forward':
+            return f"Forwarded content useful for later{sender}: {snippet}"
+        if msg_type == 'personal':
+            if feat.get('sender_trust_score', 0.5) > 0.7:
+                return f"Trusted sender update — useful but no action needed now{sender}: {snippet}"
+            return f"Personal message with no urgent action required{sender}: {snippet}"
+        if msg_type == 'promotion':
+            return f"Promotional content from opted-in source — review when convenient{sender}: {snippet}"
+        return f"Non-urgent update for later review{sender}: {snippet}"
+
+    @staticmethod
+    def _extract_snippet(text: str, max_len: int = 80) -> str:
+        if not text:
+            return "(media message)"
+        clean = ' '.join(text.split())
+        if len(clean) <= max_len:
+            return clean
+        return clean[:max_len].rsplit(' ', 1)[0] + '...'
+
+    @staticmethod
+    def _sender_context(conv_type: str, sender_id: str, feat: Dict) -> str:
+        parts = []
+        if conv_type == 'business':
+            parts.append(' from business account')
+        elif conv_type == 'group':
+            if feat.get('is_group_admin', 0) > 0:
+                parts.append(' from group admin')
+            else:
+                parts.append(' in group chat')
+        elif sender_id and sender_id != 'nan':
+            parts.append(f' from {sender_id}')
+        return parts[0] if parts else ''
 
 class MessageTypeInferer:
     """Deterministic message_type inference aligned with the competition taxonomy."""
@@ -172,13 +188,27 @@ class MessageTypeInferer:
     def infer(self, row: pd.Series, action: str, features: Optional[Dict[str, Any]] = None) -> str:
         text = row.get('message_text', '')
         if pd.isna(text) or str(text).strip() == '':
-            # NaN/empty text: voice notes or media-only messages
+            # Image messages: use OCR text extracted offline (image_analyses.json)
+            ocr = row.get('image_extracted_text', None)
+            if pd.notna(ocr) and str(ocr).strip() and str(ocr).strip().lower() != 'none':
+                text = str(ocr)
+        if pd.isna(text) or str(text).strip() == '':
+            # NaN/empty text: voice notes or media-only messages with no transcript
             if action == 'mute':
                 return 'spam'
             if action == 'notify':
                 return 'urgent'
-            return 'personal'
+            return 'unknown'
         text_lower = str(text).lower()
+
+        # Use image analysis category if available to improve type inference
+        image_category = row.get('image_category', None)
+        image_urgency = row.get('image_urgency', None)
+        if pd.notna(image_category) and image_category not in ('unknown', ''):
+            if image_category == 'urgent' and action == 'notify':
+                return 'urgent'
+            if image_category in ('promotional',) and action in ('mute', 'digest'):
+                return 'promotion'
         conversation_type = str(row.get('conversation_type', '')).lower()
         media_type = row.get('media_type', '')
         forwarded_count = row.get('forwarded_count', 0)
@@ -187,9 +217,17 @@ class MessageTypeInferer:
         if self._is_scam(text_lower):
             return 'scam'
 
+        # Router manipulation / injection attempts always read as scam
+        if self._is_injection(text_lower):
+            return 'scam'
+
         # @mention + question → urgent (before payment to avoid false match)
         if self._has_mention_with_question(text_lower, features):
             return 'urgent'
+
+        # Negation of urgency ("nothing urgent", "no need to reply", "if you get time")
+        if self._has_calm_language(text_lower):
+            return 'personal'
 
         # Unknown/unfamiliar sender patterns before event (to avoid "volunteer sheet" → event)
         if self._is_unknown_personal(text_lower):
@@ -202,7 +240,7 @@ class MessageTypeInferer:
             return 'greeting'
         if self._is_promotion(text_lower, conversation_type):
             return 'promotion'
-        if self._is_event(text_lower, media_type):
+        if self._is_event(text_lower, media_type, conversation_type):
             return 'event'
         if self._is_urgent(text_lower, action, features):
             return 'urgent'
@@ -220,11 +258,23 @@ class MessageTypeInferer:
             return 'personal'
         return 'personal' if action == 'notify' else 'business_update'
 
+    def _has_calm_language(self, text: str) -> bool:
+        """Explicit non-urgent / low-priority phrasing → personal (review later)."""
+        calm_phrases = [
+            'nothing urgent', 'not urgent', 'no rush', 'no pressure',
+            'nothing dramatic', 'no need to respond', 'no need to reply',
+            'no need to call', 'whenever you', 'take your time', 'no hurry',
+            'if you get time', 'if you get a chance', 'if you get a sec',
+            'when you get a chance', 'just checking in', 'nothing blocking',
+            'when you can', 'at your convenience', 'no deadline',
+        ]
+        return any(phrase in text for phrase in calm_phrases)
+
     def _has_mention_with_question(self, text: str, features: Optional[Dict[str, Any]]) -> bool:
         """Check if message has @mention with question — strong signal for urgent.
         Excludes casual/non-urgent phrasing like 'when you get 5 mins can you call?'"""
         # Casual phrases that negate urgency even with @mention + ?
-        casual_phrases = ['when you get', 'if you get', 'can you call', 'no rush',
+        casual_phrases = ['when you get', 'if you get', 'no rush',
                           'nothing urgent', 'nothing dramatic', 'no pressure',
                           'whenever', 'no need', 'just checking']
         if any(phrase in text for phrase in casual_phrases):
@@ -233,22 +283,44 @@ class MessageTypeInferer:
             return bool(features.get('at_mention_with_question', False))
         return bool(re.search(r'@u_\d+', text)) and '?' in text
 
+    def _is_injection(self, text: str) -> bool:
+        """Router-manipulation / prompt-injection attempts → scam type."""
+        injection_terms = [
+            'ignore all previous', 'ignore all instructions', 'ignore previous instructions',
+            'ignore sender risk', 'mark this as notify', 'mark this as digest', 'mark this as mute',
+            'classify as notify', 'classify as urgent', 'routing override', 'internal router metadata',
+            'system note for the notification router', 'assistant instruction', 'router instruction',
+            'actual message:', 'override the routing', 'change the classification',
+            'always mark this as', 'set action to',
+        ]
+        return any(term in text for term in injection_terms)
+
     def _is_scam(self, text: str) -> bool:
         scam_terms = ['otp', 'password', 'verification code', 'login code', 'verify now',
                       'account-login', 'wallet verification', 'blocked', 'routing rules',
                       'workspace access', 'account locked', 'expire today',
                       'suspended', 'profile will be restricted', 'login code',
-                      'send the code', 'reply with the', 'confirm your pin']
+                      'send the code', 'reply with the', 'confirm your pin',
+                      'share your otp', 'account will be blocked', 'processing fee',
+                      'pay the processing fee', 'claim your reward', 'selected for reward',
+                      'account hold', 'hold pe chala', 'verification nahi', 'otp abhi batao',
+                      'wallet and card details', 'payout profile']
         hits = sum(1 for term in scam_terms if term in text)
         return hits >= 2 or 'ignore all previous' in text or 'reply with the otp' in text
 
     def _is_payment(self, text: str) -> bool:
-        # Strict payment terms — exclude advisory/safety messages
+        # Strict payment terms — exclude advisory/safety messages and discussion contexts
         payment_terms = ['payment due', 'refund', 'amount due', 'card statement',
                          'pay ', 'paid', 'invoice', 'bill', 'reward points',
-                         'payment date', 'processing fee']
-        exclude_terms = ['safety advisory', 'never ask for otp', 'never ask for payment']
+                         'payment date', 'processing fee', 'payment reminder',
+                         'charge pending', 'reactivation fee', 'renewal fee']
+        exclude_terms = ['safety advisory', 'never ask for otp', 'never ask for payment',
+                         'do not share']
         if any(term in text for term in exclude_terms):
+            return False
+        # A question / direct mention about a payment is a discussion, not a
+        # payment notification (e.g. "@u_010 can you call about the refund edge case?")
+        if '?' in text or '@u_' in text:
             return False
         return any(term in text for term in payment_terms) and not self._is_scam(text)
 
@@ -257,30 +329,41 @@ class MessageTypeInferer:
                                              'stay positive', 'blessings', 'keep smiling'])
 
     def _is_promotion(self, text: str, conversation_type: str) -> bool:
-        # Skip promotion if it's a safety advisory or informational business message
+        # Skip promotion if it's a safety advisory, maintenance/society notice,
+        # or informational business message
         safety_terms = ['safety advisory', 'never ask for otp', 'never ask for payment',
-                        'advisory image', 'do not share']
+                        'advisory image', 'do not share', 'maintenance', 'society app',
+                        'service lift', 'security alert', 'gate band', 'lift maintenance',
+                        'fire alarm test', 'circular', 'consent', 'field trip',
+                        'registration', 'pottery workshop', 'workshop']
         if any(term in text for term in safety_terms):
             return False
+        # Word-boundary matching avoids substring false positives ('off' in 'office')
         promo_terms = ['off', 'offer', 'discount', 'sale', 'limited', 'unsubscribe',
                        'selling', 'price', 'rs ', 'itinerary', 'travel deal', 'plot',
-                       'token', 'shop', 'shopping', 'viewed', 'benefit', 'kurta']
-        if any(term in text for term in promo_terms):
-            return True
-        return conversation_type == 'business' and any(term in text for term in ['tap below', 'welcome'])
+                       'token', 'shop', 'shopping', 'viewed', 'benefit', 'kurta',
+                       'cashback', 'book now', 'buy now', 'welcome offer', '50%', '40%']
+        for term in promo_terms:
+            if re.search(r'\b' + re.escape(term.strip()) + r'\b', text):
+                return True
+        return False
 
-    def _is_event(self, text: str, media_type: Any) -> bool:
+    def _is_event(self, text: str, media_type: Any, conversation_type: str = 'personal') -> bool:
         event_terms = ['bus', 'school', 'circular', 'consent', 'field trip', 'cultural night',
                        'form is open', 'registrations', 'internship approval',
                        'fire alarm test', 'sync is still on', 'meeting', 'review got pulled',
-                       'appointment', 'scheduled time', 'faculty']
+                       'appointment', 'scheduled time', 'faculty',
+                       'maintenance', 'society', 'field-trip list',
+                       'client meeting', 'standup']
+        # Ride/delivery/logistics updates from businesses read as business_update,
+        # not as personal events.
+        if conversation_type != 'business':
+            event_terms += ['pickup', 'airport']
         return any(term in text for term in event_terms)
 
     def _is_urgent(self, text: str, action: str, features: Optional[Dict[str, Any]]) -> bool:
         if action != 'notify':
             return False
-        # Only match genuinely urgent time references, not casual ones like
-        # "when you get 5 mins" or "call me later"
         casual_phrases = ['when you get', 'if you get', 'can you call', 'no rush',
                           'nothing urgent', 'nothing dramatic', 'no pressure',
                           'whenever', 'no need']
@@ -288,7 +371,9 @@ class MessageTypeInferer:
             return False
         urgent_terms = ['urgent', 'asap', 'emergency', 'escalation', 'in 20 minutes',
                         'next 10 minutes', 'before eod', 'deadline', 'cannot wait',
-                        'in 30 minutes', 'next 30 minutes', 'alert threshold']
+                        'in 30 minutes', 'next 30 minutes', 'alert threshold',
+                        'incident', 'failing', 'spiking', 'join now', 'bridge now',
+                        'please join', 'right now', 'immediately']
         has_feature_time = bool(features and features.get('has_specific_time', False))
         return has_feature_time or any(term in text for term in urgent_terms)
 
@@ -309,69 +394,33 @@ class MessageTypeInferer:
 
 class ConfidenceCalibrator:
     """
-    Calibrate model confidence scores to target ranges.
+    Confidence handling for model predictions.
 
-    Target ranges:
-        - NOTIFY: 0.85-0.91
-        - MUTE: 0.81-0.87
-        - DIGEST: 0.78-0.84
+    The previous implementation linearly rescaled every probability into a fixed
+    per-class band (e.g. notify 0.85-0.91), which manufactured confidence values
+    that did not reflect real model uncertainty. That hurts the 'confidence
+    calibration' scoring component and the confidence-based router.
+
+    We now pass through the raw predicted probability (smoothed), which is
+    honest, deterministic, and comparable across classes. Rule-based predictions
+    keep their explicit rule confidence.
     """
 
     def __init__(self):
-        self.target_ranges = {
-            'notify': (0.85, 0.91),
-            'mute': (0.81, 0.87),
-            'digest': (0.78, 0.84)
-        }
         self.calibrators = {}
 
     def fit(self, y_true: np.ndarray, y_proba: np.ndarray, classes: List[str]):
-        """
-        Fit calibration for each class.
-
-        Args:
-            y_true: True labels
-            y_proba: Predicted probabilities (n_samples, n_classes)
-            classes: List of class names
-        """
+        """No-op: raw probabilities are used directly. Kept for interface compat."""
         for i, class_name in enumerate(classes):
-            # Get probabilities for this class
-            class_proba = y_proba[:, i]
+            self.calibrators[class_name] = {'min': 0.0, 'max': 1.0, 'scale': 1.0}
 
-            # Get target range
-            target_min, target_max = self.target_ranges[class_name]
-
-            # Calculate scaling factors
-            # Map [0, 1] to [target_min, target_max]
-            self.calibrators[class_name] = {
-                'min': target_min,
-                'max': target_max,
-                'scale': target_max - target_min
-            }
-
-    def transform(self, y_proba: np.ndarray, predicted_class: str) -> float:
-        """
-        Calibrate confidence for a single prediction.
-
-        Args:
-            y_proba: Probability score [0, 1]
-            predicted_class: Predicted class name
-
-        Returns:
-            Calibrated confidence in target range
-        """
-        if predicted_class not in self.calibrators:
-            return float(y_proba)
-
-        cal = self.calibrators[predicted_class]
-
-        # Scale to target range
-        calibrated = cal['min'] + (y_proba * cal['scale'])
-
-        # Ensure within bounds
-        calibrated = np.clip(calibrated, cal['min'], cal['max'])
-
-        return float(calibrated)
+    def transform(self, y_proba: float, predicted_class: str) -> float:
+        """Return the raw (smoothed) predicted probability for the chosen class."""
+        p = float(y_proba)
+        # Mild smoothing keeps very low scores from looking absurdly certain,
+        # without distorting the ordering or the calibration.
+        smoothed = 0.5 * p + 0.5 * max(p, 1.0 - p)
+        return float(np.clip(smoothed, 0.05, 0.95))
 
 
 class MessageRoutingPipeline:
@@ -395,7 +444,7 @@ class MessageRoutingPipeline:
         self.data_loader = data_loader
 
         # Components
-        self.rule_classifier = RuleBasedClassifier()
+        self.rule_classifier = RuleBasedClassifier(data_loader.businesses)
         self.text_extractor = TextFeatureExtractor()
         self.user_extractor = UserHistoryFeatureExtractor(data_loader)
         self.reason_generator = ReasonGenerator()
@@ -664,14 +713,22 @@ class MessageRoutingPipeline:
         rule_result = self.rule_classifier.classify_message(message_row)
         if rule_result is not None:
             action = rule_result['action']
-            message_type = self.type_inferer.infer(message_row, action, feature_dict)
+            # Honor explicit scam classification from deterministic trust/safety
+            # rules (high-risk business account, injection, phishing patterns).
+            # The type inferer otherwise re-derives the type from text alone and
+            # can label lookalike phishing as payment/business_update/forward.
+            if rule_result.get('message_type') == 'scam':
+                message_type = 'scam'
+            else:
+                message_type = self.type_inferer.infer(message_row, action, feature_dict)
             confidence = rule_result['confidence']
             reason = self.reason_generator.generate(
                 action=action,
                 message_type=message_type,
                 features=feature_dict,
                 text=message_row.get('message_text', ''),
-                confidence=confidence
+                confidence=confidence,
+                message_row=message_row
             )
             evidence_ids = self.user_extractor.get_evidence_message_ids(
                 user_id=message_row['user_id'],
@@ -707,7 +764,8 @@ class MessageRoutingPipeline:
             message_type=message_type,
             features=feature_dict,
             text=message_row.get('message_text', ''),
-            confidence=calibrated_confidence
+            confidence=calibrated_confidence,
+            message_row=message_row
         )
 
         evidence_ids = self.user_extractor.get_evidence_message_ids(
@@ -828,18 +886,14 @@ class MessageRoutingPipeline:
         self.calibrator = ConfidenceCalibrator()
         calibrator_json_path = model_path / "calibrator.json"
         if calibrator_json_path.exists():
-            with open(calibrator_json_path, 'r') as f:
-                self.calibrator.calibrators = json.load(f)
-            print(f"[OK] Loaded calibrator JSON: {calibrator_json_path}")
+            try:
+                with open(calibrator_json_path, 'r') as f:
+                    self.calibrator.calibrators = json.load(f)
+                print(f"[OK] Loaded calibrator JSON: {calibrator_json_path}")
+            except Exception as e:
+                print(f"[WARN] Could not load calibrator JSON ({e}); using defaults")
         else:
-            for class_name in self.classes:
-                target_min, target_max = self.calibrator.target_ranges[class_name]
-                self.calibrator.calibrators[class_name] = {
-                    'min': target_min,
-                    'max': target_max,
-                    'scale': target_max - target_min
-                }
-            print("[OK] Reconstructed calibrator from target ranges")
+            print("[OK] Reconstructed calibrator from defaults")
 
         print("\n[SUCCESS] All models loaded successfully!")
 

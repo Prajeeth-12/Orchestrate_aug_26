@@ -1,109 +1,84 @@
 # HackerRank Orchestrate - Message Notification Router
 
-**Competition:** August 2026  
-**Task:** AI-powered WhatsApp message routing  
-**Goal:** TOP 10 ranking (92.8% target accuracy)  
-**Status:** 40% Complete - Phase 3 Done
+**Competition:** August 2026
+**Task:** Route incoming WhatsApp messages to `notify` / `digest` / `mute` using
+personalized, multimodal reasoning (text + image + voice).
 
 ---
 
-## 🎯 QUICK START
+## What This System Does
 
-### To Resume Work:
+For every incoming message in `dataset/messages.csv` the pipeline decides:
+
+- `notify` - interrupt the user now
+- `digest` - useful but can wait
+- `mute` - low-value, repetitive, unwanted, suspicious, or unsafe
+
+It uses the full provided context: user behavior, group/business relationships,
+historical messages and reaction events, image analyses, and voice transcripts.
+
+## Architecture
+
+A LangGraph-orchestrated, ML-first hybrid pipeline (`code/agent_orchestrator.py`):
+
+1. **Input guardrail** - blocks prompt-injection / router-manipulation attempts.
+2. **Rule-based classifier** - deterministic rules for forwards, scams, urgent
+   time-sensitive messages, and urgency negation (~40% coverage).
+3. **XGBoost classifier** - trained on the provided labeled samples, with 59
+   text + user-history + multimodal features.
+4. **Confidence-based router** - low-confidence predictions pass to a reviewer
+   node (deterministic pass-through; a live LLM can be swapped in without
+   changing the graph).
+5. **Pydantic output validator** - enforces the exact submission schema.
+
+Multimodal content is processed offline into `dataset/voice_transcriptions.json`
+and `dataset/image_analyses.json`, then injected at inference time.
+
+## Setup
+
 ```bash
-cd /c/Users/praje/Downloads/hr_oc_know
-cat PROGRESS.md
+python -m venv venv
+venv\Scripts\activate          # Windows  (or: source venv/bin/activate)
+pip install -r code/requirements.txt
+
+# Optional API keys (only needed to regenerate multimodal analyses):
+copy .env.example .env        # then fill in your keys
 ```
 
-### Tell Claude:
-> "Read PROGRESS.md and continue with Phase 4: ML Training"
+## Run (generate predictions)
 
----
-
-## 📂 PROJECT STRUCTURE
-
-```
-hr_oc_know/                    🎯 CLEAN WORKSPACE
-├── PROGRESS.md               ⭐ Current status (40%)
-├── problem_statement.md       Official problem
-├── AGENTS.md                  AI tool instructions
-│
-├── strategy_docs/             Strategy & planning
-│   ├── SESSION_STATE.md      Complete context
-│   ├── WINNING_STRATEGY_TOP10.md
-│   └── QUICK_REFERENCE_CARD.md
-│
-├── code/                      💻 Implementation
-│   ├── utils/                ✅ Data loading
-│   ├── features/             ✅ 59 features
-│   ├── explore_data.py       ✅
-│   └── rule_based_classifier.py ✅
-│
-└── dataset/                   📊 Competition data
-    ├── messages.csv          110 test messages
-    ├── sample_messages.csv   70 training samples
-    └── [12 other CSV files + media/]
+```bash
+python code/main.py --input dataset/messages.csv --output output.csv --models models
 ```
 
----
+Output: `output.csv` with columns
+`message_id,action,message_type,reason,confidence,evidence_message_ids`
+- one row per `message_id` in `messages.csv`.
 
-## ✅ COMPLETED (40%)
+## Regenerate multimodal analyses (optional)
 
-**Phase 1: Data Loading** (100%) ✅
-- Dataset loader with 12 CSV files
-- Lazy loading, media path resolution
+- Voice: transcribe `dataset/media/audio/*` (e.g. Riva ASR / Whisper) into
+  `dataset/voice_transcriptions.json` keyed by message_id.
+- Images: analyze `dataset/media/images/*` into `dataset/image_analyses.json`
+  keyed by message_id with `urgency`, `category`, `extracted_text`, `has_deadline`.
 
-**Phase 2: Rule-Based Baseline** (100%) ✅
-- 40% coverage with 100% accuracy
-- 6 deterministic rules
-- 12/30 samples perfect
+## Project layout
 
-**Phase 3: Feature Engineering** (100%) ✅
-- 28 text features (context-aware)
-- 21 user history features (trust scores)
-- Multimodal ready (image + voice)
-
----
-
-## 📝 NEXT PHASE
-
-**Phase 4: ML Training** (Next)
-- XGBoost classifier
-- Confidence calibration
-- Full pipeline integration
-- Target: 88% on remaining 60%
-
-**Expected Performance:**
 ```
-Rule-based: 40% × 100% = 40.0% ✅
-ML (60%):   60% × 88%  = 52.8% 📝
-────────────────────────────────
-Total:                   92.8% → TOP 10 🎯
+code/
+  main.py                  CLI entry point
+  agent_orchestrator.py    LangGraph orchestration + guardrails
+  train_pipeline.py        rules, XGBoost training, type inference, confidence
+  rule_based_classifier.py deterministic rules
+  features/                text + user-history + multimodal feature extraction
+  utils/data_loader.py     dataset loading
+  requirements.txt         dependencies
+models/                    trained XGBoost model + metadata
+dataset/                   competition data + multimodal artifacts
 ```
 
----
+## Notes
 
-## 🔍 KEY FILES
-
-| File | Purpose |
-|------|---------|
-| `PROGRESS.md` | Current status & metrics |
-| `MILESTONE_PHASE3_COMPLETE.md` | Latest achievement |
-| `strategy_docs/SESSION_STATE.md` | Full context for resuming |
-| `code/features/INTEGRATION_GUIDE.md` | How to use features |
-
----
-
-## 🚀 COMPETITION INFO
-
-**Task:** Route WhatsApp messages to notify/digest/mute  
-**Input:** 110 test messages (text + 20 images + 13 voice)  
-**Output:** CSV with action, message_type, reason, confidence, evidence  
-**Modality:** Multimodal (text + image + voice)  
-**Target:** 92.8% accuracy → TOP 10
-
----
-
-**Last Updated:** August 1, 2026, 23:25  
-**Progress:** 40% Complete  
-**Status:** Ready for ML Training
+- Inference is deterministic (no live LLM calls in the hot path).
+- Secrets are read from environment variables only - never commit `.env` or
+  API keys to source.

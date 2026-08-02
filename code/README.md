@@ -1,195 +1,90 @@
 # Message Notification Router - Implementation
 
-**Competition:** HackerRank Orchestrate August 2026  
-**Target:** TOP 10 (92.8% accuracy)  
-**Status:** 🔨 Building
+**Competition:** HackerRank Orchestrate August 2026
 
----
+## Quick Start
 
-## 🚀 Quick Start
-
-### Setup
 ```bash
-# Create virtual environment
 python -m venv venv
-source venv/Scripts/activate  # Windows
-# source venv/bin/activate     # Mac/Linux
-
-# Install dependencies
+venv\Scripts\activate            # Windows  (or: source venv/bin/activate)
 pip install -r requirements.txt
 
-# Set up environment variables (if using APIs)
-cp ../.env.example .env
-# Edit .env to add ANTHROPIC_API_KEY if using Claude Vision
+# Optional: only needed to regenerate multimodal artifacts
+copy ..\.env.example .env        # add API keys if you regenerate image/voice analyses
 ```
 
-### Run
+Generate predictions:
+
 ```bash
-# 1. Explore data
-python explore_data.py
-
-# 2. Test rule-based classifier (40% coverage)
-python rule_based_classifier.py
-
-# 3. Train full pipeline (once implemented)
-python train_pipeline.py
-
-# 4. Generate predictions
-python generate_predictions.py
+python main.py --input ../dataset/messages.csv --output ../output.csv --models ../models
 ```
 
----
+Reads `dataset/voice_transcriptions.json` and `dataset/image_analyses.json` (already
+committed) to enrich voice/image messages at inference time.
 
-## 📁 Code Structure
+## Code Structure
 
 ```
 code/
-├── README.md                      # This file
-├── requirements.txt               # Dependencies
-├── IMPLEMENTATION_LOG.md          # Detailed build log
-│
-├── explore_data.py               # Data exploration (Phase 1)
-├── rule_based_classifier.py      # 40% deterministic rules (Phase 1)
-│
-├── utils/
-│   ├── __init__.py
-│   └── data_loader.py            # Dataset loading utilities
-│
-├── features/                      # (Phase 2 - To be created)
-│   ├── text_features.py          # Text feature extraction
-│   ├── user_features.py          # User history features
-│   └── multimodal_features.py    # Image & voice processing
-│
-├── models/                        # (Phase 3 - To be created)
-│   ├── xgboost_classifier.py     # XGBoost model
-│   └── roberta_classifier.py     # RoBERTa fine-tuning
-│
-├── train_pipeline.py             # (Phase 3 - To be created)
-├── generate_predictions.py        # (Phase 4 - To be created)
-└── evaluate.py                    # (Phase 4 - To be created)
+├── main.py                      # CLI entry point
+├── agent_orchestrator.py        # LangGraph pipeline: guardrail -> rules -> XGBoost -> router -> validation
+├── train_pipeline.py            # MessageRoutingPipeline, MessageTypeInferer, ConfidenceCalibrator, training
+├── rule_based_classifier.py     # Deterministic rules (forwards, scams, urgency, negation)
+├── bedrock_multimodal.py        # Image analysis via Bedrock (env key, optional offline)
+├── nvidia_multimodal.py         # NVIDIA multimodal analysis (optional offline tool)
+├── process_riva.py              # Voice transcription via Riva ASR (offline regen tool)
+├── requirements.txt             # Inference dependencies
+├── features/
+│   ├── text_features.py
+│   ├── user_features.py
+│   └── multimodal_features.py   # 59 total features
+└── utils/
+    └── data_loader.py           # Dataset loading + history lookups
 ```
 
----
+Models live in `../models/` (trained XGBoost + label encoder + metadata).
 
-## 🎯 Implementation Phases
+## Pipeline
 
-### Phase 1: Foundation ✅ (Current)
-- [x] Data loading utilities
-- [x] Data exploration
-- [x] Rule-based classifier (40% coverage)
-- [ ] Validate on samples
+1. **Input guardrail** (`agent_orchestrator.py`): blocks prompt-injection and
+   router-manipulation attempts -> `mute` / `scam` / 0.99.
+2. **Rule-based classifier** (`rule_based_classifier.py`): forwards, scam terms,
+   urgent time-sensitive patterns, and urgency negation (~40% of messages).
+3. **XGBoost classifier**: trained on the provided labeled samples.
+4. **Router**: predictions below the confidence threshold pass to a reviewer
+   node (deterministic pass-through; swap in a live LLM without graph changes).
+5. **Pydantic validator**: enforces the exact output schema.
 
-### Phase 2: Feature Engineering 📝
-- [ ] Text features (RoBERTa embeddings, NLP)
-- [ ] User history features (trust scores, engagement)
-- [ ] Multimodal processing (images, voice)
+## Message Type Inference
 
-### Phase 3: ML Models 📝
-- [ ] XGBoost training
-- [ ] RoBERTa fine-tuning
-- [ ] Ensemble & confidence calibration
+`MessageTypeInferer` order matters (first match wins):
+`scam` -> `injection` -> `forward` -> `event` -> `payment` -> `greeting` ->
+`urgent` -> `promotion` -> `unknown`, with an early negation-of-urgency check so
+polite, non-urgent messages ("No need to reply", "when you get a chance") route
+to `digest` instead of `notify`.
 
-### Phase 4: Integration 📝
-- [ ] Full pipeline
-- [ ] Testing on 70 samples
-- [ ] Production run on 264 messages
-- [ ] Generate output.csv
+## Confidence
 
----
+`ConfidenceCalibrator.transform(p, cls)` returns the raw predicted probability
+smoothed toward the majority class: `clip(0.5*p + 0.5*max(p, 1-p), 0.05, 0.95)`.
+No fabricated ranges - confidence reflects model uncertainty.
 
-## 🧪 Testing
+## Multimodal Regeneration (optional)
 
-### Validate Rule-Based Classifier
+Voice transcripts and image analyses are already committed; regenerate only if
+the media files change:
+
 ```bash
-python rule_based_classifier.py
-# Expected: 12/30 correct on samples (40% coverage)
+# Voice (requires a Riva endpoint)
+set RIVA_ENDPOINT=127.0.0.1:50051
+python process_riva.py --messages ../dataset/messages.csv --media-dir ../dataset/media/audio --output ../dataset/voice_transcriptions.json
+
+# Images (requires a vision API key)
+python nvidia_multimodal.py --messages ../dataset/messages.csv --media-dir ../dataset/media/images --output ../dataset/image_analyses.json
 ```
 
-### Validate Full Pipeline
+## Tests
+
 ```bash
-python evaluate.py --input ../dataset/sample_messages.csv
-# Target: >88% accuracy (62/70 correct)
+python -c "import ast,glob; [ast.parse(open(f,encoding='utf-8').read()) for f in glob.glob('*.py')]; print('syntax OK')"
 ```
-
----
-
-## 📊 Expected Performance
-
-| Component | Coverage | Accuracy | Contribution |
-|-----------|----------|----------|--------------|
-| **Rule-based** | 40% | 100% | 40.0% |
-| **ML (XGBoost + RoBERTa)** | 60% | 88% | 52.8% |
-| **Total** | 100% | **92.8%** | **TOP 10** 🎯 |
-
----
-
-## 🔑 Key Implementation Details
-
-### Rule-Based Classifier (40% coverage)
-```python
-# 100% accuracy rules
-if forwarded_count > 0: 
-    action = 'mute'
-
-if scam_keywords >= 2:
-    action = 'mute'
-
-if '@' in text and '?' in text:
-    action = 'notify'
-```
-
-### Confidence Ranges (CRITICAL!)
-- **NOTIFY:** 0.85-0.91
-- **MUTE:** 0.81-0.87 (HIGHER than digest!)
-- **DIGEST:** 0.78-0.84
-
-### User History Features (93% coverage)
-- Sender trust score (reply rate vs dismiss rate)
-- Topic relevance (embedding similarity)
-- Opt-in/opt-out status
-- Historical engagement patterns
-
----
-
-## 🐛 Debugging
-
-### If imports fail:
-```bash
-pip install -r requirements.txt
-```
-
-### If data not found:
-```bash
-ls ../dataset/messages.csv
-# Should exist with 265 rows (264 + header)
-```
-
-### Check logs:
-```bash
-cat IMPLEMENTATION_LOG.md
-```
-
----
-
-## 📝 Notes
-
-- **Rule-based first:** Get 40% accuracy to validate approach
-- **User history is gold:** 93% of messages have evidence_message_ids
-- **Context > Keywords:** Detect negation, specific times
-- **Conservative:** When uncertain → DIGEST (safest)
-- **Confidence calibration:** MUTE requires HIGHER confidence than DIGEST
-
----
-
-## 🔄 Resume in New Session
-
-1. Read `IMPLEMENTATION_LOG.md` for what's been built
-2. Check `../PROGRESS.md` for overall status
-3. Run existing scripts to validate
-4. Continue from next phase
-
----
-
-**Status:** Phase 1 in progress  
-**Next:** Validate rule-based, then build feature extraction  
-**Updated:** August 1, 2026, 21:35

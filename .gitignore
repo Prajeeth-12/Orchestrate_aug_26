@@ -1,0 +1,18 @@
+# Secrets - never commit
+.env
+.env.local
+.claude/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Regeneration / temp artifacts
+output_new.csv
+sample_output.csv
+output_run*.csv
+exploration_plots.png
+
+# Packaging
+submission*.zip
+*.zip

@@ -77,7 +77,8 @@ class TextFeatureExtractor:
         # Negation of urgency patterns
         self.negation_urgency_pattern = re.compile(
             r'\b(?:no\s+need|no\s+pressure|whenever\s+you|no\s+rush|'
-            r'not\s+urgent|take\s+your\s+time|at\s+your\s+convenience)\b',
+            r'not\s+urgent|nothing\s+urgent|nothing\s+dramatic|'
+            r'take\s+your\s+time|at\s+your\s+convenience)\b',
             re.IGNORECASE
         )
 
