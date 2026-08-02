@@ -212,22 +212,27 @@ class RuleBasedClassifier:
             }
 
         # Rule 1: MUTE - Forwarded messages (scaled by count)
-        # forward_count >= 5: always mute (chain/spam)
+        # forward_count >= 5: mute UNLESS urgent/time-sensitive
         # forward_count 2-4: mute unless business transactional content
         # forward_count == 1: mute only if greeting/chain pattern
         if forwarded_count >= 5:
-            confidence = self._get_forward_confidence(forwarded_count)
-            return {
-                'action': 'mute',
-                'message_type': 'forward',
-                'reason': f'Message forwarded {forwarded_count} times - likely spam chain content',
-                'confidence': confidence,
-                'evidence_message_ids': 'none'
-            }
+            if self._is_urgent_time_sensitive(message_text, conversation_type):
+                pass  # urgent forwarded content (e.g. tanker notice, transport) falls through to ML
+            else:
+                confidence = self._get_forward_confidence(forwarded_count)
+                return {
+                    'action': 'mute',
+                    'message_type': 'forward',
+                    'reason': f'Message forwarded {forwarded_count} times - likely spam chain content',
+                    'confidence': confidence,
+                    'evidence_message_ids': 'none'
+                }
         if forwarded_count >= 2:
             # Exempt business transactional messages (refunds, payouts, orders)
             if conversation_type == 'business' and self._is_business_transactional(message_text):
                 pass  # fall through to ML
+            elif self._is_urgent_time_sensitive(message_text, conversation_type):
+                pass  # urgent forwarded content falls through to ML
             else:
                 confidence = self._get_forward_confidence(forwarded_count)
                 return {

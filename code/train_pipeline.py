@@ -304,7 +304,10 @@ class MessageTypeInferer:
                       'share your otp', 'account will be blocked', 'processing fee',
                       'pay the processing fee', 'claim your reward', 'selected for reward',
                       'account hold', 'hold pe chala', 'verification nahi', 'otp abhi batao',
-                      'wallet and card details', 'payout profile']
+                      'wallet and card details', 'payout profile',
+                      'share your account', 'sharing account number',
+                      'send account details', 'sharing your account',
+                      'sharing your account number', 'claim benefits']
         hits = sum(1 for term in scam_terms if term in text)
         return hits >= 2 or 'ignore all previous' in text or 'reply with the otp' in text
 
@@ -373,7 +376,8 @@ class MessageTypeInferer:
                         'next 10 minutes', 'before eod', 'deadline', 'cannot wait',
                         'in 30 minutes', 'next 30 minutes', 'alert threshold',
                         'incident', 'failing', 'spiking', 'join now', 'bridge now',
-                        'please join', 'right now', 'immediately']
+                        'please join', 'right now', 'immediately',
+                        'call me now', 'call now', 'come immediately', 'reach now']
         has_feature_time = bool(features and features.get('has_specific_time', False))
         return has_feature_time or any(term in text for term in urgent_terms)
 

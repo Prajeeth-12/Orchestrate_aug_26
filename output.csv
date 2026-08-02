@@ -80,7 +80,7 @@ msg_051,mute,promotion,Forwarded 3 times with no personal context from business 
 msg_097,digest,personal,"Sender explicitly indicated non-urgent — safe for later review from u_041: Reached home and had dinner. Don't call now, phone is charging. We can talk...",0.82,message_0054;message_0359;message_0226
 msg_089,digest,personal,"Casual greeting with no action required from u_049: Hi, this is Meera from the pottery workshop. You left a blue water bottle at...",0.95,message_0301
 msg_053,mute,forward,Chain content forwarded 6 times — repetitive low-value message from group admin,0.83,message_0253;message_0411;message_0161
-msg_059,mute,business_update,"Low-value content muted in group chat: Claim benefits by sharing your account number. Approval window closes today,...",0.731,message_0369
+msg_059,mute,scam,Potential scam or router-manipulation attempt blocked in group chat,0.731,message_0369
 msg_024,mute,promotion,Forwarded 3 times with no personal context from business account: Reminder: your account has a shopping offer available. Selected products and...,0.81,message_0257;message_0104;message_0103
 msg_072,mute,scam,Scam/phishing pattern detected with suspicious verification request in group chat,0.81,message_0085;message_0199
 msg_036,mute,scam,"Forwarded 2 times with no personal context from business account: Dear customer, Your international payout profile needs one final verification...",0.92,message_0283;message_0127;message_0128
